@@ -47,6 +47,24 @@ Single-file weights under the shared store (`$COMFY_MODELS_DIR`), fetched with
 | **Pony Diffusion V7** (`comfy-pony-v7`) | fp8 checkpoint + TE + VAE | Pixel-art pipeline (AuraFlow) |
 | FLUX.2 [klein] 9B GGUF | `unet/` (+ TE + VAE) | Klein in ComfyUI (also available via MFLUX CLI) |
 
+## FLUX.2: klein 9B vs dev 32B — which to use
+
+Two sizes, very different roles (measured on this M5 Max / 64 GB — a 6-style sweep
+of the same subject/seed):
+
+| | **klein 9B** (MFLUX CLI) | **dev 32B** (ComfyUI GGUF) |
+|---|---|---|
+| Speed | **~16 s/image** — 6 styles in **97 s** | ~1 min+/image; only 3 done in ~27 min |
+| Memory | ~9 GB, no pressure | ~40 GB; **a batch maxes swap → crawls** |
+| Stylized / illustration | near-identical | marginally finer |
+| **Exact text in image** | unreliable | ✅ **spells it correctly** |
+
+**Rule of thumb — klein is the daily driver, dev is the specialist.** Use **klein**
+for fast style exploration and iteration (quality gap is marginal for stylized
+work). Reach for **dev** only when you need **legible text baked into the image**
+or a final hero shot worth the wait — and **don't batch dev renders on 64 GB**, it
+swaps (see [comfyui-flux2-dev.md](comfyui-flux2-dev.md)).
+
 ## What changed since the 2026-06 snapshot
 
 Old models were cleared to free disk; these are current equivalents (mid-2026),
