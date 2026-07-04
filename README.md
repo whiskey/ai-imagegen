@@ -27,6 +27,7 @@ Sorted into **setup** (provision once) and **usage & tips** (day-to-day):
 
 **docs/usage/**
 - [generating.md](docs/usage/generating.md) — `generate.sh`, tunables, recipes, ComfyUI launch
+- [comfyui-flux2-dev.md](docs/usage/comfyui-flux2-dev.md) — FLUX.2 [dev] 32B in ComfyUI (ready-made workflows, best text)
 - [models-guide.md](docs/usage/models-guide.md) — which model for what (aliases, params, licenses)
 - [tips-and-gotchas.md](docs/usage/tips-and-gotchas.md) — **read this** (quant vs. text, Z-Image fix, download reliability, throttle)
 - [pixel-art-pipeline.md](docs/usage/pixel-art-pipeline.md) — Pony V7 → sprite frames

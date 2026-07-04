@@ -60,7 +60,9 @@ caveats.
 - **ComfyUI-Manager** installed → Manager button → Model Manager fetches
   checkpoints/LoRAs straight into the shared store.
 - **ComfyUI-GGUF** installed for FLUX.2 GGUF workflows.
-- For the **FLUX.2 [dev] 32B** workflow, see [setup/models](../setup/models.md#flux2-dev-comfyui).
+- For **FLUX.2 [dev] 32B** — best quality + the only reliable text renderer here —
+  two ready-made workflows are in your Workflows sidebar. See
+  [comfyui-flux2-dev.md](comfyui-flux2-dev.md).
 
 ## Pixel-art pipeline
 
