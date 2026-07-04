@@ -45,6 +45,16 @@ Key node facts (verified against the live registry):
 - **RAM:** ~40 GB resident (26 GB model + ~14 GB encoder ComfyUI swaps out after
   encoding). Comfortable on 64 GB.
 
+## Performance & memory (tested)
+
+The 32B is heavy. Fresh, an 8-step Turbo render is ~30 s (~4 s/step). But across a
+long ComfyUI session with many renders — especially switching between LoRA and
+no-LoRA configs — memory fragments and the model starts **swapping** (watch
+`sysctl vm.swapusage`), collapsing to **~60–80 s _per step_** (~15× slower).
+If renders suddenly crawl: **restart ComfyUI** (`./comfyui-start.sh`) to clear
+memory — the first render after reloads ~40 GB (~1 min), then runs fast again.
+Interrupt a stuck run with `curl -X POST http://127.0.0.1:8188/interrupt`.
+
 ## What it can and can't do (tested)
 
 - ✅ **Exact text** — renders headlines like "KYOTO" correctly, even a poster full
