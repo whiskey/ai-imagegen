@@ -31,12 +31,18 @@ source "$SCRIPT_DIR/.venv/bin/activate"
 
 MODEL="${MFLUX_MODEL:-z-image-turbo}"
 QUANT="${MFLUX_QUANT:-8}"
+# MFLUX_QUANT=none|off|full|0 -> full precision (skip -q). Needed for Qwen text,
+# which quantization garbles — costs ~62GB RAM, so close other apps first.
+case "$QUANT" in none|off|full|0) QUANT="" ;; esac
 
 # Each model family has its OWN mflux command; the generic `mflux-generate` is
 # FLUX.1 only (passing --base-model z-image/qwen to it routes through the wrong
 # model class). Map alias -> (command+variant, default steps).
+DEF_GUIDANCE=""; PREQUANT=""
 case "$MODEL" in
-  z-image-turbo) CMD=(mflux-generate-z-image-turbo);              DEF_STEPS=8  ;;
+  # the full Tongyi Z-Image repo renders pure noise via mflux; use the author's
+  # pre-quantized 4-bit build (self-contained, already 4-bit so no -q), guidance MUST be 0.
+  z-image-turbo) CMD=(mflux-generate-z-image-turbo -m filipstrand/Z-Image-Turbo-mflux-4bit); DEF_STEPS=9; DEF_GUIDANCE=0; PREQUANT=1 ;;
   z-image)       CMD=(mflux-generate-z-image);                    DEF_STEPS=28 ;;
   flux2)         CMD=(mflux-generate-flux2 --model flux2-klein-9b); DEF_STEPS=4 ;;  # variant is --model, NOT --base-model
   flux2-4b)      CMD=(mflux-generate-flux2 --model flux2-klein-4b); DEF_STEPS=4 ;;
@@ -48,6 +54,7 @@ case "$MODEL" in
 esac
 
 STEPS="${MFLUX_STEPS:-$DEF_STEPS}"
+GUIDANCE="${MFLUX_GUIDANCE:-$DEF_GUIDANCE}"
 SIZE="${MFLUX_SIZE:-1024}"
 WIDTH="${MFLUX_W:-$SIZE}"
 HEIGHT="${MFLUX_H:-$SIZE}"
@@ -62,7 +69,8 @@ OUTPUT_FILE="$OUTPUT_DIR/${TIMESTAMP}_${MODEL}.png"
 ARGS=(--prompt "$PROMPT" --width "$WIDTH" --height "$HEIGHT"
       --output "$OUTPUT_FILE" --metadata)
 [ -n "$STEPS" ] && ARGS+=(--steps "$STEPS")
-[ -n "$QUANT" ] && ARGS+=(-q "$QUANT")
+[ -n "$GUIDANCE" ] && ARGS+=(--guidance "$GUIDANCE")
+[ -z "$PREQUANT" ] && [ -n "$QUANT" ] && ARGS+=(-q "$QUANT")   # skip -q for pre-quantized builds
 [ -n "${MFLUX_SEED:-}" ] && ARGS+=(--seed "$MFLUX_SEED")
 [ -n "${MFLUX_LOWRAM:-}" ] && ARGS+=(--low-ram)
 

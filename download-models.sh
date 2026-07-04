@@ -29,7 +29,9 @@ warm_mflux() {  # $1 = friendly MFLUX_MODEL alias
 hf_get_file() {  # repo, path_in_repo, dest_subdir, out_name  (single file, renamed)
   local dest="$COMFY_MODELS_DIR/$3"; mkdir -p "$dest"
   if [ -f "$dest/$4" ]; then echo ">>> $4 already present, skipping"; return; fi
-  local tmp; tmp="$(mktemp -d)"
+  # stage on the SAME volume as the store so the final mv is instant (not a
+  # cross-filesystem copy — matters for the multi-GB GGUF/text-encoder files).
+  local tmp; tmp="$(mktemp -d "$COMFY_MODELS_DIR/.dltmp.XXXXXX")"
   echo ">>> hf download $1 :: $2  ->  $dest/$4"
   hf download "$1" "$2" --local-dir "$tmp" >/dev/null
   mv "$tmp/$2" "$dest/$4"; rm -rf "$tmp"
@@ -54,6 +56,15 @@ for target in "$@"; do
       hf_get_file purplesmartai/pony-v7-base \
         text_encoder/model.safetensors text_encoders pony-v7-text_encoder.safetensors
       echo ">>> Pony V7 ready in $COMFY_MODELS_DIR (checkpoints/ vae/ text_encoders/)" ;;
+
+    comfy-flux2-dev)  # FLUX.2 [dev] 32B for ComfyUI (GGUF Q6_K + Mistral TE + VAE + Turbo LoRA)
+      hf_get_file unsloth/FLUX.2-dev-GGUF flux2-dev-Q6_K.gguf unet flux2-dev-Q6_K.gguf
+      hf_get_file Comfy-Org/flux2-dev \
+        split_files/text_encoders/mistral_3_small_flux2_fp8.safetensors text_encoders mistral_3_small_flux2_fp8.safetensors
+      hf_get_file Comfy-Org/flux2-dev split_files/vae/flux2-vae.safetensors vae flux2-vae.safetensors
+      hf_get_file Comfy-Org/flux2-dev \
+        split_files/loras/Flux2TurboComfyv2.safetensors loras flux2-dev-turbo.safetensors
+      echo ">>> FLUX.2 dev ready: unet/flux2-dev-Q6_K.gguf + text_encoders/ + vae/ + loras/flux2-dev-turbo" ;;
     *)
       echo "Unknown target: $target (try: ./download-models.sh list)" >&2 ;;
   esac
