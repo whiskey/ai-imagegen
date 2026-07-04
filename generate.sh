@@ -1,30 +1,79 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# CLI image generation on Apple Silicon via MFLUX (native MLX, no Docker).
+#
+# Usage:
+#   ./generate.sh "your prompt here"
+#   MFLUX_MODEL=qwen ./generate.sh "a poster that reads 'HELLO WORLD'"
+#
+# Model is chosen with MFLUX_MODEL (default: z-image-turbo). Friendly aliases:
+#   z-image-turbo  Z-Image Turbo 6B  Apache-2.0, ~8 steps, fastest  (default)
+#   z-image        Z-Image 6B        higher quality, more steps
+#   flux2          FLUX.2 [klein] 9B latest Black Forest Labs, editing-capable
+#   flux2-4b       FLUX.2 [klein] 4B smaller/faster klein
+#   qwen           Qwen-Image        best text rendering, 2K native
+#   flux-dev       FLUX.1 [dev] 12B  classic Flux
+#   flux-schnell   FLUX.1 [schnell]  4-step Flux
+#   krea           FLUX.1 Krea [dev] photographic Flux
+# Any raw MFLUX --base-model value also works (e.g. MFLUX_MODEL=flux2-klein-base-9b).
+#
+# Tunables (env vars):
+#   MFLUX_QUANT=8     quantization bits: 3/4/5/6/8, or "" for full precision
+#   MFLUX_STEPS=...   override inference steps
+#   MFLUX_SEED=...    fixed seed (default: random)
+#   MFLUX_SIZE=1024   square size shorthand, or set MFLUX_W / MFLUX_H
+#   MFLUX_LOWRAM=1    enable --low-ram
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/env.sh"
 source "$SCRIPT_DIR/.venv/bin/activate"
 
-MODEL="dev"
-STEPS=20
+MODEL="${MFLUX_MODEL:-z-image-turbo}"
+QUANT="${MFLUX_QUANT:-8}"
+
+# Each model family has its OWN mflux command; the generic `mflux-generate` is
+# FLUX.1 only (passing --base-model z-image/qwen to it routes through the wrong
+# model class). Map alias -> (command+variant, default steps).
+case "$MODEL" in
+  z-image-turbo) CMD=(mflux-generate-z-image-turbo);              DEF_STEPS=8  ;;
+  z-image)       CMD=(mflux-generate-z-image);                    DEF_STEPS=28 ;;
+  flux2)         CMD=(mflux-generate-flux2 --model flux2-klein-9b); DEF_STEPS=4 ;;  # variant is --model, NOT --base-model
+  flux2-4b)      CMD=(mflux-generate-flux2 --model flux2-klein-4b); DEF_STEPS=4 ;;
+  qwen)          CMD=(mflux-generate-qwen);                       DEF_STEPS="" ;;
+  flux-dev|dev)  CMD=(mflux-generate --model dev);                DEF_STEPS=20 ;;
+  flux-schnell|schnell) CMD=(mflux-generate --model schnell);     DEF_STEPS=4  ;;
+  krea)          CMD=(mflux-generate --model krea-dev);           DEF_STEPS=28 ;;
+  *)             CMD=(mflux-generate --model "$MODEL");            DEF_STEPS="" ;;  # raw model name
+esac
+
+STEPS="${MFLUX_STEPS:-$DEF_STEPS}"
+SIZE="${MFLUX_SIZE:-1024}"
+WIDTH="${MFLUX_W:-$SIZE}"
+HEIGHT="${MFLUX_H:-$SIZE}"
+
 OUTPUT_DIR="$SCRIPT_DIR/generated"
 mkdir -p "$OUTPUT_DIR"
-
 PROMPT="${1:-a vast cyberpunk cityscape at sunset, neon lights reflecting off wet streets, ultra detailed}"
-
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-OUTPUT_FILE="$OUTPUT_DIR/${TIMESTAMP}.png"
+OUTPUT_FILE="$OUTPUT_DIR/${TIMESTAMP}_${MODEL}.png"
 
-echo "Model:  Flux.1 Dev (BF16)"
-echo "Steps:  $STEPS"
+# Assemble args (CMD already carries the right command + --base-model variant)
+ARGS=(--prompt "$PROMPT" --width "$WIDTH" --height "$HEIGHT"
+      --output "$OUTPUT_FILE" --metadata)
+[ -n "$STEPS" ] && ARGS+=(--steps "$STEPS")
+[ -n "$QUANT" ] && ARGS+=(-q "$QUANT")
+[ -n "${MFLUX_SEED:-}" ] && ARGS+=(--seed "$MFLUX_SEED")
+[ -n "${MFLUX_LOWRAM:-}" ] && ARGS+=(--low-ram)
+
+echo "Model:  $MODEL  ->  ${CMD[*]}"
+echo "Quant:  ${QUANT:-full precision}   Steps: ${STEPS:-model default}   Size: ${WIDTH}x${HEIGHT}"
 echo "Prompt: $PROMPT"
+echo "Cache:  $HF_HOME"
 echo "Output: $OUTPUT_FILE"
-echo ""
+echo
 
-mflux-generate \
-    --model "$MODEL" \
-    --steps "$STEPS" \
-    --seed -1 \
-    --height 1024 \
-    --width 1024 \
-    --prompt "$PROMPT" \
-    --output "$OUTPUT_FILE"
+"${CMD[@]}" "${ARGS[@]}"
+
+echo
+echo "Saved: $OUTPUT_FILE"

@@ -1,5 +1,9 @@
 # Models Inventory (snapshot 2026-06-04)
 
+> **Historical.** This records what existed before the models were cleared.
+> For the *current* recommended set and where weights live now, see
+> [MODELS.md](MODELS.md). Kept for reference only.
+
 Snapshot taken before clearing `comfyui/models/` to free disk space.
 Plan: re-download updated versions later, not these exact files.
 
