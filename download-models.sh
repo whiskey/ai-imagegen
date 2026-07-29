@@ -41,11 +41,11 @@ for target in "$@"; do
   case "$target" in
     list)
       echo "MFLUX (native, Apple Silicon):"
-      echo "  z-image-turbo  z-image  flux2  flux2-4b  qwen  flux-dev  flux-schnell  krea"
+      echo "  z-image-turbo  z-image  flux2  flux2-4b  qwen  qwen-2512  flux-dev  flux-schnell  krea"
       echo "ComfyUI (single-file weights):"
       echo "  comfy-flux2-klein   comfy-pony-v7   comfy-qwen-image2"
       ;;
-    z-image-turbo|z-image|flux2|flux2-4b|qwen|flux-dev|flux-schnell|krea)
+    z-image-turbo|z-image|flux2|flux2-4b|qwen|qwen-2512|flux-dev|flux-schnell|krea)
       warm_mflux "$target" ;;
 
     comfy-pony-v7)  # Pony Diffusion V7 (AuraFlow) for the pixel-art pipeline

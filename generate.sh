@@ -12,7 +12,8 @@ set -euo pipefail
 #   z-image        Z-Image 6B        higher quality, more steps
 #   flux2          FLUX.2 [klein] 9B latest Black Forest Labs, editing-capable
 #   flux2-4b       FLUX.2 [klein] 4B smaller/faster klein
-#   qwen           Qwen-Image        best text rendering, 2K native
+#   qwen           Qwen-Image 20B    original (Aug 2025); full-precision-capable text
+#   qwen-2512      Qwen-Image-2512   updated 20B base (Dec 2025), 8-bit MLX build (recommended)
 #   flux-dev       FLUX.1 [dev] 12B  classic Flux
 #   flux-schnell   FLUX.1 [schnell]  4-step Flux
 #   krea           FLUX.1 Krea [dev] photographic Flux
@@ -47,6 +48,8 @@ case "$MODEL" in
   flux2)         CMD=(mflux-generate-flux2 --model flux2-klein-9b); DEF_STEPS=4 ;;  # variant is --model, NOT --base-model
   flux2-4b)      CMD=(mflux-generate-flux2 --model flux2-klein-4b); DEF_STEPS=4 ;;
   qwen)          CMD=(mflux-generate-qwen);                       DEF_STEPS="" ;;
+  # updated Dec-2025 base as a pre-quantized 8-bit MLX build (self-contained, skip -q).
+  qwen-2512)     CMD=(mflux-generate-qwen -m mlx-community/Qwen-Image-2512-8bit); DEF_STEPS=20; PREQUANT=1 ;;
   flux-dev|dev)  CMD=(mflux-generate --model dev);                DEF_STEPS=20 ;;
   flux-schnell|schnell) CMD=(mflux-generate --model schnell);     DEF_STEPS=4  ;;
   krea)          CMD=(mflux-generate --model krea-dev);           DEF_STEPS=28 ;;

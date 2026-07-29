@@ -39,7 +39,7 @@ sourcing `env.sh`.
 
 ```bash
 ./download-models.sh list                 # show known targets
-./download-models.sh z-image-turbo qwen    # MFLUX: download + tiny test render
+./download-models.sh z-image-turbo qwen-2512  # MFLUX: download + tiny test render
 ./download-models.sh comfy-pony-v7         # ComfyUI: Pony V7 (pixel-art)
 ./download-models.sh comfy-flux2-dev       # ComfyUI: FLUX.2 dev 32B set
 ```
