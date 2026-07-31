@@ -1,0 +1,6 @@
+# SonarQube analysis via the shared template (devops/ci-templates).
+# Runs on default-branch pushes; SONAR_TOKEN comes from the instance-level
+# CI variables and the Sonar project is auto-created on the first scan.
+include:
+  - project: 'devops/ci-templates'
+    file: 'sonar-only.yml'
