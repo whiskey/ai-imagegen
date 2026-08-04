@@ -20,6 +20,25 @@ cargo run --release      # first build compiles egui — a few minutes, once
 The release binary lands at `gui/target/release/ai-imagegen-gui` — double-click it
 or copy it wherever you like.
 
+## Package as a macOS .app
+
+To get a double-clickable Finder app:
+
+```bash
+cd gui
+./make-app.sh            # -> dist/AI ImageGen.app  (arm64, ad-hoc signed)
+open "dist/AI ImageGen.app"
+```
+
+`make-app.sh` builds the release binary and wraps it in a standard bundle
+(`Contents/{Info.plist,MacOS/…}`). It's ad-hoc signed, so it launches without a
+Gatekeeper prompt on the machine that built it. Move it to `/Applications` if you
+like.
+
+The app locates `generate.sh` via the repo path baked in at build time. If you
+relocate the checkout, launch with `AI_IMAGEGEN_ROOT=/path/to/ai-imagegen` set (or
+rebuild). `dist/` is gitignored.
+
 ## How it works
 
 - The model dropdown lists the `generate.sh` aliases (`z-image-turbo`, `qwen-2512`,
