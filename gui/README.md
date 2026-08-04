@@ -24,9 +24,14 @@ or copy it wherever you like.
 
 - The model dropdown lists the `generate.sh` aliases (`z-image-turbo`, `qwen-2512`,
   `flux2`, …). Selecting one sets `MFLUX_MODEL` for the run.
+- **Size / Steps / Seed** map to `MFLUX_SIZE` / `MFLUX_STEPS` / `MFLUX_SEED`. Steps
+  and Seed have a checkbox — leave them unchecked to use each model's default step
+  count and a random seed; check to override (e.g. a fixed seed for reproducibility).
 - **Generate** runs `bash generate.sh "<prompt>"` on a background thread, so the
   window stays responsive during the render (~18 s for `z-image-turbo`, longer for
   the 20 B models).
+- Its stdout/stderr stream into a live **Log** panel as the render runs (including
+  the step progress bar), so you can watch instead of guessing.
 - On success the script prints `Saved: <path>`; the app parses that line and loads
   the PNG. Images are also written to `../generated/` as usual.
 
@@ -36,7 +41,6 @@ or copy it wherever you like.
   The *GUI* is cross-platform, but the generation backend is not — on Windows/Linux
   you'd point it at a different backend. The path to `generate.sh` is the parent of
   this crate; override with `AI_IMAGEGEN_ROOT=/path/to/ai-imagegen`.
-- No steps/seed/size controls yet — uses each model's defaults from `generate.sh`.
-  Those map cleanly onto extra widgets when wanted (env vars `MFLUX_STEPS`,
-  `MFLUX_SEED`, `MFLUX_SIZE`).
-- No live progress bar; a spinner shows while the render runs.
+- No quantization / img2img / editing controls yet, and no gallery of past renders —
+  just single text-to-image. The `generate.sh` env vars make these straightforward
+  to add later.
