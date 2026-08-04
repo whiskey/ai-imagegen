@@ -78,13 +78,17 @@ struct ImagenApp {
     rx: Option<Receiver<GenMsg>>,
     texture: Option<egui::TextureHandle>,
     log: Vec<String>,
+    /// One-shot: if AI_IMAGEGEN_PROMPT was set, auto-run once on the first frame.
+    autostart: bool,
 }
 
 impl ImagenApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        let prompt = std::env::var("AI_IMAGEGEN_PROMPT").unwrap_or_default();
+        let autostart = !prompt.trim().is_empty();
         Self {
             root: repo_root(),
-            prompt: String::new(),
+            prompt,
             model_idx: 0,
             size: 1024,
             override_steps: false,
@@ -96,6 +100,7 @@ impl ImagenApp {
             rx: None,
             texture: None,
             log: Vec::new(),
+            autostart,
         }
     }
 
@@ -297,6 +302,12 @@ impl eframe::App for ImagenApp {
             }
         }
 
+        // One-shot auto-run (AI_IMAGEGEN_PROMPT) fires on the first frame.
+        if self.autostart && !self.generating {
+            self.autostart = false;
+            self.start_generation(ctx);
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Local Image Generation");
             ui.add_space(6.0);
@@ -392,8 +403,17 @@ impl eframe::App for ImagenApp {
 }
 
 fn main() -> eframe::Result<()> {
+    let mut viewport = egui::ViewportBuilder::default().with_inner_size([760.0, 960.0]);
+    // Optional deterministic placement: AI_IMAGEGEN_POS="x,y" (screen points).
+    if let Ok(pos) = std::env::var("AI_IMAGEGEN_POS") {
+        if let Some((x, y)) = pos.split_once(',') {
+            if let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>()) {
+                viewport = viewport.with_position([x, y]);
+            }
+        }
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([760.0, 960.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
