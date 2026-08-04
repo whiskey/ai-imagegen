@@ -39,6 +39,20 @@ The app locates `generate.sh` via the repo path baked in at build time. If you
 relocate the checkout, launch with `AI_IMAGEGEN_ROOT=/path/to/ai-imagegen` set (or
 rebuild). `dist/` is gitignored.
 
+### Icon
+
+`make-app.sh` embeds `icon/AppIcon.icns` if present. To change the icon, edit the
+drawing in `icon/gen-icon.py` and regenerate:
+
+```bash
+./make-icon.sh           # redraws the master PNG + rebuilds icon/AppIcon.icns
+./make-app.sh            # re-bundle so the app picks it up
+```
+
+`make-icon.sh` needs the repo venv (Pillow); `make-app.sh` only needs the committed
+`.icns`. If a rebuilt icon doesn't refresh in Dock/Finder, it's macOS icon caching —
+`killall Dock` or move the `.app` to force it.
+
 ## How it works
 
 - The model dropdown lists the `generate.sh` aliases (`z-image-turbo`, `qwen-2512`,
