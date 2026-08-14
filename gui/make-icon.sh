@@ -2,8 +2,11 @@
 set -euo pipefail
 
 # Regenerate the app icon: draw the master PNG (Pillow, in the repo venv), then
-# build the multi-resolution AppIcon.icns via sips + iconutil. Commit the
-# resulting icon/AppIcon.icns so make-app.sh does not need Python/Pillow.
+# build the multi-resolution AppIcon.icns via sips + iconutil.
+#
+# Commit BOTH outputs: AppIcon.icns so make-app.sh does not need Python/Pillow,
+# and icon_1024.png because main.rs include_bytes!()s it — the bundle icon only
+# covers Finder, the running app has to set its own Dock icon (see gui/README).
 #
 #   ./make-icon.sh
 
