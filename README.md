@@ -66,6 +66,22 @@ MFLUX_MODEL=qwen-2512 MFLUX_W=1536 MFLUX_H=640 MFLUX_SEED=55 ./generate.sh \
 ~2½ min at 20 steps on the M5 Max; the only post-processing was cropping the
 paper margin off.
 
+## Desktop app
+
+`gui/` is a small [egui](https://github.com/emilk/egui)/eframe front-end over the
+very same `generate.sh` — pick a model, type a prompt, watch the render log
+stream, see the result. It duplicates no model logic: it sets `MFLUX_MODEL` /
+`MFLUX_SIZE` / `MFLUX_STEPS` / `MFLUX_SEED` and runs the script.
+
+<img src="docs/assets/gui.jpg" alt="The desktop app: model picker, prompt box, live render log and the finished image" width="420">
+
+```bash
+cd gui
+cargo run --release      # or ./make-app.sh  ->  dist/AI ImageGen.app
+```
+
+Packaging, the `.app` bundle and the icon pipeline: [gui/README.md](gui/README.md).
+
 ## Documentation
 
 Sorted into **setup** (provision once) and **usage & tips** (day-to-day):
@@ -101,6 +117,7 @@ Sorted into **setup** (provision once) and **usage & tips** (day-to-day):
 │   throttle.sh · blend-styles.py
 ├── docs/{setup,usage}/           # documentation
 ├── docs/assets/                  # README imagery
+├── gui/                          # desktop front-end (Rust/egui) + .app bundler
 ├── .venv/                        # MFLUX venv            (git-ignored)
 ├── comfyui/                      # ComfyUI clone + venv  (git-ignored)
 └── generated/                    # output images         (git-ignored)
