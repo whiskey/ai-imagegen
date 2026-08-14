@@ -16,7 +16,7 @@ jobs:
     name: shell + python
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: shellcheck
         run: shellcheck ./*.sh gui/*.sh
       - name: python syntax
@@ -29,7 +29,7 @@ jobs:
       run:
         working-directory: gui
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: toolchain
         run: rustup component add rustfmt clippy
       - name: fmt
