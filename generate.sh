@@ -28,6 +28,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
+# shellcheck disable=SC1091  # venv is created at setup time, not in the repo
 source "$SCRIPT_DIR/.venv/bin/activate"
 
 MODEL="${MFLUX_MODEL:-z-image-turbo}"

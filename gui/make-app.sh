@@ -18,6 +18,7 @@ VERSION="0.1.0"
 APP="dist/${APP_NAME}.app"
 
 echo ">>> building release binary…"
+# shellcheck disable=SC1091  # rustup's env, outside the repo
 source "$HOME/.cargo/env" 2>/dev/null || true
 cargo build --release
 

@@ -29,6 +29,7 @@ shared_store:
     style_models: style_models
 YAML
 
+# shellcheck disable=SC1091  # venv is created at setup time, not in the repo
 source "$COMFY_DIR/.venv/bin/activate"
 cd "$COMFY_DIR"
 
