@@ -402,8 +402,23 @@ impl eframe::App for ImagenApp {
     }
 }
 
+/// The `.app` bundle icon only covers Finder. A few frames after launch eframe
+/// calls macOS `setApplicationIconImage:` with whatever icon the app supplied —
+/// and falls back to the *egui logo* when that is None, which is what replaced
+/// the Dock tile mid-launch. So hand it the same artwork the bundle uses.
+fn app_icon() -> egui::IconData {
+    let png = include_bytes!("../icon/icon_1024.png");
+    let rgba = image::load_from_memory(png)
+        .expect("embedded app icon is a valid PNG")
+        .into_rgba8();
+    let (width, height) = rgba.dimensions();
+    egui::IconData { rgba: rgba.into_raw(), width, height }
+}
+
 fn main() -> eframe::Result<()> {
-    let mut viewport = egui::ViewportBuilder::default().with_inner_size([760.0, 960.0]);
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([760.0, 960.0])
+        .with_icon(app_icon());
     // Optional deterministic placement: AI_IMAGEGEN_POS="x,y" (screen points).
     if let Ok(pos) = std::env::var("AI_IMAGEGEN_POS") {
         if let Some((x, y)) = pos.split_once(',') {

@@ -41,17 +41,29 @@ rebuild). `dist/` is gitignored.
 
 ### Icon
 
-`make-app.sh` embeds `icon/AppIcon.icns` if present. To change the icon, edit the
-drawing in `icon/gen-icon.py` and regenerate:
+A teal→navy squircle holding a mountain range that dissolves into pixels on the
+left — a denoising pass caught halfway. To change it, edit the drawing in
+`icon/gen-icon.py` and regenerate:
 
 ```bash
-./make-icon.sh           # redraws the master PNG + rebuilds icon/AppIcon.icns
+./make-icon.sh           # redraws icon_1024.png + rebuilds icon/AppIcon.icns
 ./make-app.sh            # re-bundle so the app picks it up
 ```
 
 `make-icon.sh` needs the repo venv (Pillow); `make-app.sh` only needs the committed
-`.icns`. If a rebuilt icon doesn't refresh in Dock/Finder, it's macOS icon caching —
-`killall Dock` or move the `.app` to force it.
+`.icns`. Both outputs are committed, because **the icon is set in two places**:
+
+- `icon/AppIcon.icns` → `Contents/Resources` + `CFBundleIconFile`. This is what
+  Finder and the Dock use *until the process is up*.
+- `icon/icon_1024.png` → `include_bytes!`'d by `main.rs` and passed as
+  `ViewportBuilder::with_icon`. eframe calls macOS `setApplicationIconImage:` a
+  few frames after launch, and **falls back to the egui logo when the app supplies
+  no icon** ([`epi_integration.rs`](https://docs.rs/eframe/0.29.1/src/eframe/native/epi_integration.rs.html)),
+  which is why the Dock tile used to turn into a black "e" the moment the window
+  appeared. Keep the two in sync — `make-icon.sh` writes both from one drawing.
+
+If a rebuilt icon still doesn't refresh in Dock/Finder, that part *is* macOS icon
+caching — `killall Dock` or move the `.app` to force it.
 
 ## How it works
 
