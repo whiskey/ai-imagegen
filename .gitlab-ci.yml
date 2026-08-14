@@ -1,3 +1,7 @@
+# Internal (tsk) pipeline only — the shared template lives on this instance and
+# is not reachable from a public mirror. The GitHub-side equivalent, which lints
+# the shell scripts and builds the GUI, is .github/workflows/ci.yml.
+#
 # SonarQube analysis via the shared template (devops/ci-templates).
 # Runs on default-branch pushes; SONAR_TOKEN comes from the instance-level
 # CI variables and the Sonar project is auto-created on the first scan.

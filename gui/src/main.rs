@@ -226,7 +226,9 @@ fn run_generate(p: GenParams, tx: Sender<GenMsg>, ctx: egui::Context) {
             let _ = tx.send(GenMsg::Failed(format!("generate.sh exited with {s}")));
         }
         Err(e) => {
-            let _ = tx.send(GenMsg::Failed(format!("waiting on generate.sh failed: {e}")));
+            let _ = tx.send(GenMsg::Failed(format!(
+                "waiting on generate.sh failed: {e}"
+            )));
         }
     }
     ctx.request_repaint();
@@ -277,8 +279,11 @@ impl eframe::App for ImagenApp {
                 match rx.try_recv() {
                     Ok(GenMsg::Line(line)) => self.push_log(line),
                     Ok(GenMsg::Done { path, image }) => {
-                        self.texture =
-                            Some(ctx.load_texture("generated", image, egui::TextureOptions::LINEAR));
+                        self.texture = Some(ctx.load_texture(
+                            "generated",
+                            image,
+                            egui::TextureOptions::LINEAR,
+                        ));
                         self.status = format!("Saved: {}", path.display());
                         finished = true;
                         break;
@@ -334,7 +339,11 @@ impl eframe::App for ImagenApp {
             ui.add_enabled_ui(!self.generating, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Size");
-                    ui.add(egui::DragValue::new(&mut self.size).range(256..=2048).speed(8));
+                    ui.add(
+                        egui::DragValue::new(&mut self.size)
+                            .range(256..=2048)
+                            .speed(8),
+                    );
                     ui.label("px");
                     ui.separator();
                     ui.checkbox(&mut self.override_steps, "Steps");
@@ -346,7 +355,9 @@ impl eframe::App for ImagenApp {
                     ui.checkbox(&mut self.fixed_seed, "Seed");
                     ui.add_enabled(
                         self.fixed_seed,
-                        egui::DragValue::new(&mut self.seed).range(0..=u32::MAX).speed(1.0),
+                        egui::DragValue::new(&mut self.seed)
+                            .range(0..=u32::MAX)
+                            .speed(1.0),
                     );
                 });
             });
@@ -355,7 +366,10 @@ impl eframe::App for ImagenApp {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let ready = !self.generating && !self.prompt.trim().is_empty();
-                if ui.add_enabled(ready, egui::Button::new("Generate")).clicked() {
+                if ui
+                    .add_enabled(ready, egui::Button::new("Generate"))
+                    .clicked()
+                {
                     self.start_generation(ctx);
                 }
                 if self.generating {
@@ -386,12 +400,14 @@ impl eframe::App for ImagenApp {
 
             if let Some(tex) = &self.texture {
                 ui.add_space(8.0);
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    let avail = ui.available_width();
-                    let size = tex.size_vec2();
-                    let scale = (avail / size.x).min(1.0);
-                    ui.image(egui::load::SizedTexture::new(tex.id(), size * scale));
-                });
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let avail = ui.available_width();
+                        let size = tex.size_vec2();
+                        let scale = (avail / size.x).min(1.0);
+                        ui.image(egui::load::SizedTexture::new(tex.id(), size * scale));
+                    });
             }
         });
 
@@ -412,7 +428,11 @@ fn app_icon() -> egui::IconData {
         .expect("embedded app icon is a valid PNG")
         .into_rgba8();
     let (width, height) = rgba.dimensions();
-    egui::IconData { rgba: rgba.into_raw(), width, height }
+    egui::IconData {
+        rgba: rgba.into_raw(),
+        width,
+        height,
+    }
 }
 
 fn main() -> eframe::Result<()> {

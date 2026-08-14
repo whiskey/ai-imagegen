@@ -1,0 +1,40 @@
+# Public-mirror CI. The internal GitLab pipeline (.gitlab-ci.yml) runs SonarQube
+# against the tsk instance and is not portable here, so this is the GitHub-side
+# equivalent: lint the shell entry points and build the Rust GUI.
+#
+# There is nothing to test end-to-end in CI — generation needs Apple Silicon and
+# ~200 GB of model weights — so this checks what can be checked without them.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  scripts:
+    name: shell + python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck ./*.sh gui/*.sh
+      - name: python syntax
+        run: python3 -m py_compile blend-styles.py gui/icon/gen-icon.py
+
+  gui:
+    name: rust gui
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: gui
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: rustup component add rustfmt clippy
+      - name: fmt
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: build
+        run: cargo build --release

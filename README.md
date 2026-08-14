@@ -124,3 +124,9 @@ Sorted into **setup** (provision once) and **usage & tips** (day-to-day):
 
 ~/ai-models/                      # shared model store    (outside the repo)
 ```
+
+## License
+
+[MIT](LICENSE) for the code in this repo. It ships no model weights — each model
+carries its own license, summarised in
+[docs/usage/models-guide.md](docs/usage/models-guide.md).

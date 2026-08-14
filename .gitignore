@@ -3,3 +3,4 @@
 comfyui/
 generated/
 .claude/
+__pycache__/
