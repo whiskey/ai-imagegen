@@ -10,9 +10,9 @@ cache (`$HF_HOME`); nothing to place by hand.
 
 | Alias | Model | Params | License | Best for |
 |---|---|---|---|---|
-| `z-image-turbo` *(default)* | Z-Image Turbo (4-bit build) | 6B | Apache-2.0 | Fast, general, commercial-OK. ~18 s |
+| `z-image-turbo` | Z-Image Turbo (4-bit build) | 6B | Apache-2.0 | Fast, general, commercial-OK. ~18 s |
 | `z-image` | Z-Image (base) | 6B | Apache-2.0 | Higher quality, more steps |
-| `flux2` | FLUX.2 [klein] 9B | 9B | FLUX dev non-commercial | **Best all-round**; great prompt adherence + text; ~8 s (4-step distilled) |
+| `flux2` *(default)* | FLUX.2 [klein] 9B | 9B | FLUX dev non-commercial | **Best all-round**; great prompt adherence + text; ~8 s (4-step distilled) |
 | `flux2-4b` | FLUX.2 [klein] 4B | 4B | FLUX dev non-commercial | Faster/lighter klein |
 | `qwen` | **Qwen-Image (20B)** | 20B | Apache-2.0 | Original (Aug 2025). Gorgeous images, 2K. Text unreliable — see gotchas |
 | `qwen-2512` | **Qwen-Image-2512 (20B)** | 20B | Apache-2.0 | **Recommended Qwen** — updated Dec-2025 base, better realism/detail/text. 8-bit MLX build |
@@ -34,12 +34,20 @@ cache (`$HF_HOME`); nothing to place by hand.
 Variant selection uses `--model` (e.g. `--model flux2-klein-9b`), **not**
 `--base-model` — `generate.sh` handles this per alias.
 
-MFLUX also does editing / img2img / ControlNet / upscaling — see the
-`mflux-generate-*` commands in `.venv/bin` (`mflux-generate-qwen-edit`,
-`mflux-generate-flux2-edit`, `mflux-generate-kontext`, `mflux-upscale-seedvr2`, …).
+**Reference images** (`./generate.sh "prompt" image.png`, see
+[generating](generating.md#reference-images)): every alias above can take one as an
+img2img starting point. Instruction-style *editing* needs a dedicated model, and
+`generate.sh` wires up two — `flux2` / `flux2-4b` (`mflux-generate-flux2-edit`,
+multi-image, no extra weights) and `qwen` / `qwen-2512` (`mflux-generate-qwen-edit`,
+downloads Qwen-Image-Edit-2509, ~58 GB).
+
+MFLUX also does ControlNet / inpainting / upscaling, not wired up here — see the
+remaining `mflux-generate-*` commands in `.venv/bin` (`mflux-generate-kontext`,
+`mflux-generate-fill`, `mflux-upscale-seedvr2`, …).
 
 ### Quick picks
-- **Everyday / fast:** `z-image-turbo` (default) or `flux2`.
+- **Everyday:** `flux2` (default) — or `z-image-turbo` when you want the fastest
+  render, a smaller load, or an Apache-2.0 licence.
 - **Prompt adherence + some text:** `flux2`.
 - **Max photorealism:** `krea` or `flux2`.
 - **Precise typography:** none of the MFLUX models nail it — use ComfyUI FLUX.2 dev.

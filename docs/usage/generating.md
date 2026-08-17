@@ -3,12 +3,12 @@
 ## MFLUX — command line (fastest path)
 
 ```bash
-# default model = Z-Image Turbo (6B, Apache-2.0, ~18 s)
+# default model = FLUX.2 [klein] 9B (4-step distilled, editing-capable)
 ./generate.sh "a red panda wearing a tiny top hat, watercolor style"
 
 # pick a model (aliases in models-guide.md)
-MFLUX_MODEL=flux2 ./generate.sh "an astronaut above Earth, photorealistic, golden hour"
-MFLUX_MODEL=qwen  ./generate.sh "a serene alpine lake at dawn, mist, pine forest"
+MFLUX_MODEL=z-image-turbo ./generate.sh "an astronaut above Earth, golden hour"  # fastest, Apache-2.0
+MFLUX_MODEL=qwen-2512     ./generate.sh "a serene alpine lake at dawn, mist, pine forest"
 ```
 
 Output lands in `generated/` as `<timestamp>_<model>.png` plus a sidecar
@@ -18,13 +18,59 @@ Output lands in `generated/` as `<timestamp>_<model>.png` plus a sidecar
 
 | Var | Default | Notes |
 |---|---|---|
-| `MFLUX_MODEL` | `z-image-turbo` | alias or raw model name |
+| `MFLUX_MODEL` | `flux2` | alias or raw model name |
 | `MFLUX_QUANT` | `8` | `3/4/5/6/8`, or **`none`/`off`/`full`/`0`** for full precision |
 | `MFLUX_STEPS` | per-model | inference steps |
 | `MFLUX_GUIDANCE` | per-model | CFG; e.g. Qwen likes `2.5`, z-image-turbo is forced to `0` |
 | `MFLUX_SEED` | random | fixed seed for reproducibility |
 | `MFLUX_SIZE` | `1024` | square shorthand (or `MFLUX_W` / `MFLUX_H`) |
+| `MFLUX_MAX_MP` | `1.3` | megapixel cap when the size comes from a reference image |
 | `MFLUX_LOWRAM` | — | `1` to reduce peak RAM (slower) |
+| `MFLUX_IMAGE` | — | one reference image (env form of the extra args below) |
+| `MFLUX_MODE` | `auto` | `edit` \| `img2img` — see below |
+| `MFLUX_STRENGTH` | `0.4` | img2img only: how much of the reference survives (0–1) |
+
+### Reference images
+
+Any argument after the prompt is a reference image:
+
+```bash
+# edit: the prompt is an INSTRUCTION, the picture comes from the reference
+MFLUX_MODEL=flux2 ./generate.sh "put a knitted red scarf on the fox" fox.png
+
+# several references combine (FLUX.2 only)
+MFLUX_MODEL=flux2 ./generate.sh "make her wear those glasses" person.jpg glasses.jpg
+
+# img2img: the reference only seeds the denoise, the prompt describes it all
+MFLUX_MODE=img2img MFLUX_STRENGTH=0.55 ./generate.sh "the same fox, anime cel style" fox.png
+```
+
+The two modes are genuinely different, and `MFLUX_MODE=auto` (the default) picks
+the better one per model:
+
+| | what the reference is | what the prompt is | models |
+|---|---|---|---|
+| **edit** | conditioning, 1+ images | an instruction | `flux2`, `flux2-4b` (no extra download) · `qwen`, `qwen-2512` (pulls Qwen-Image-Edit-2509, ~58 GB) |
+| **img2img** | the starting point of the denoise | a full description | all of them |
+
+So `auto` = **edit** on the FLUX.2 [klein] models, which do it with the weights
+they already have, and **img2img** everywhere else. Under the hood the edit path
+switches to `mflux-generate-flux2-edit` / `mflux-generate-qwen-edit`; img2img just
+adds `--image-path` / `--image-strength` to the normal command.
+
+#### Output size with a reference
+
+With a reference and no `MFLUX_SIZE` / `MFLUX_W` / `MFLUX_H`, no `--width/--height`
+is passed at all, so the tools that default to the source image (FLUX.2 in both
+modes, Z-Image Turbo) keep the reference's aspect ratio instead of squashing it into
+a square; Qwen and Z-Image base still fall back to 1024² — set a size for those.
+
+**Above `MFLUX_MAX_MP` (1.3 MP) that reference-derived size is scaled down** and
+passed explicitly, aspect preserved, snapped to the multiple of 16 mflux wants. This
+exists because it bites hard: a 2880×1800 wallpaper as reference renders at
+2880×1800, which peaked at **69 GB on a 64 GB machine** — swapping, 25–34 s per step.
+The same edit at the capped 1440×896 stays near 30 GB and runs ~4 s per step. Raise
+the cap if you have headroom (`MFLUX_MAX_MP=3`), or set an explicit size to bypass it.
 
 ### Recipes worth remembering
 

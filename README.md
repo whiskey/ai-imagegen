@@ -16,8 +16,8 @@ store** (`~/ai-models/`) so weights download once. Runs natively on Metal/MPS.
 ## Quick start
 
 ```bash
-./generate.sh "a red panda wearing a tiny top hat, watercolor style"   # MFLUX CLI
-MFLUX_MODEL=flux2 ./generate.sh "an astronaut above Earth, golden hour"
+./generate.sh "a red panda wearing a tiny top hat, watercolor style"   # MFLUX CLI, FLUX.2 klein
+MFLUX_MODEL=z-image-turbo ./generate.sh "an astronaut above Earth, golden hour"   # fastest
 ./comfyui-start.sh                                                       # ComfyUI @ :8188
 ```
 
@@ -74,7 +74,14 @@ paper margin off.
 `gui/` is a small [egui](https://github.com/emilk/egui)/eframe front-end over the
 very same `generate.sh` — pick a model, type a prompt, watch the render log
 stream, see the result. It duplicates no model logic: it sets `MFLUX_MODEL` /
-`MFLUX_SIZE` / `MFLUX_STEPS` / `MFLUX_SEED` and runs the script.
+`MFLUX_SIZE` / `MFLUX_STEPS` / `MFLUX_SEED` / `MFLUX_MODE` / `MFLUX_STRENGTH` and
+runs the script.
+
+Drag an image onto the window (or **Add…**) to use it as a **reference**: with
+FLUX.2 [klein] the prompt then becomes an instruction — *"put a knitted red scarf
+on the fox"* — and several references can be combined; every other model takes the
+reference as an img2img starting point instead. Details:
+[reference images](docs/usage/generating.md#reference-images).
 
 <img src="docs/assets/gui.jpg" alt="The desktop app: model picker, prompt box, live render log and the finished image" width="420">
 

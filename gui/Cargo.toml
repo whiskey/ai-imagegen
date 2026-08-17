@@ -7,5 +7,12 @@ description = "Minimal cross-platform desktop front-end for the local MFLUX imag
 [dependencies]
 # eframe re-exports egui; one dep gives us window + widgets + rendering.
 eframe = "0.29"
-# Only need PNG decoding (generate.sh writes .png); trim the rest to keep it light.
-image = { version = "0.25", default-features = false, features = ["png"] }
+# PNG for our own renders; JPEG/WebP so a dropped-in reference image can be
+# previewed too. Still no encoders — we only ever decode.
+image = { version = "0.25", default-features = false, features = [
+  "png",
+  "jpeg",
+  "webp",
+] }
+# Native file picker for choosing reference images (AppKit panel on macOS).
+rfd = "0.15"
