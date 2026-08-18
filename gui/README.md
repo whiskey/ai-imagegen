@@ -108,12 +108,39 @@ For scripted runs (or a documentation screenshot), `AI_IMAGEGEN_IMAGE` preloads
 reference images the same way `AI_IMAGEGEN_PROMPT` preloads the prompt —
 colon-separated paths, like `PATH`.
 
+## Gallery
+
+Everything in `../generated/` shows up as a strip of tiles under the log, newest
+first. Click one to open it in the preview; the caption underneath reports the
+model, steps, seed and size, and the prompt that produced it — so an old render
+can be traced back without leaving the app. **Use as reference** feeds it straight
+back in as a reference image, which is how you iterate on your own output.
+
+Two details worth knowing:
+
+- **Ordering is by mtime, not by file name.** `generate.sh` writes
+  `<timestamp>_<model>.png`, but hand-named keepers (`klein-style-anime.png`)
+  have no timestamp, and letters sort after digits — by name those would all
+  masquerade as the newest.
+- **The prompt is read out of the PNG, not the sidecar.** mflux writes its
+  generation record twice: into `<name>.metadata.json` and into the image's EXIF.
+  The sidecar is unreliable — mflux's FLUX.2 CLIs call `ImageUtil.save_image()`
+  without passing `metadata=`, so `json.dump(None)` lands a literal `null` in
+  every flux2 sidecar, while the embedded copy is complete. The gallery tries the
+  sidecar, then falls back to the record inside the file, which works for every
+  model.
+
+Thumbnails are decoded on a worker thread (a screenful of 1024² PNGs is tens of
+megabytes), so the window stays live while they fill in. The newest
+`GALLERY_MAX` (200) get tiles; anything older is counted in the header rather
+than silently dropped.
+
 ## Notes / limits (it's a "simple start")
 
 - **Backend is macOS / Apple Silicon** (MFLUX via `generate.sh`, a bash script).
   The *GUI* is cross-platform, but the generation backend is not — on Windows/Linux
   you'd point it at a different backend. The path to `generate.sh` is the parent of
   this crate; override with `AI_IMAGEGEN_ROOT=/path/to/ai-imagegen`.
-- No quantization control and no gallery of past renders yet. The `generate.sh` env
-  vars make these straightforward to add later.
+- No quantization control yet (`MFLUX_QUANT` from the script would cover it), and
+  the gallery is read-only — no delete, rename or reveal-in-Finder.
 - The file picker is native (`rfd`); everything else is egui.

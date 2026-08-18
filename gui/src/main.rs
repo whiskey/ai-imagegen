@@ -10,6 +10,7 @@
 //! collects a prompt + options, runs the script on a background thread while
 //! streaming its output to a live log, and shows the resulting image.
 
+use std::collections::HashMap;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -118,10 +119,36 @@ struct RefImage {
     thumb: Option<egui::TextureHandle>,
 }
 
+/// One past render in the gallery strip. `thumb` fills in asynchronously — the
+/// loader thread decodes newest-first, so the tiles you can see resolve first.
+struct Render {
+    path: PathBuf,
+    thumb: Option<egui::TextureHandle>,
+}
+
+/// A decoded gallery thumbnail on its way back from the loader thread.
+struct ThumbMsg {
+    path: PathBuf,
+    image: ColorImage,
+}
+
+/// What the preview pane is showing, described from the file's own record.
+struct Viewing {
+    path: PathBuf,
+    params: String,
+    prompt: Option<String>,
+}
+
 const LOG_MAX_LINES: usize = 400;
 /// Reference thumbnails: decoded at 2× so they stay sharp on a Retina display.
 const THUMB: f32 = 76.0;
 const THUMB_PX: u32 = 152;
+/// Gallery tiles, likewise 2×.
+const TILE: f32 = 72.0;
+const TILE_PX: u32 = 144;
+/// How many of the newest renders get a tile. The rest are counted in the
+/// header rather than quietly dropped.
+const GALLERY_MAX: usize = 200;
 
 /// Where `generate.sh` lives. Baked in at build time (parent of this crate),
 /// overridable at runtime with `AI_IMAGEGEN_ROOT` for a relocated checkout.
@@ -170,9 +197,17 @@ struct ImagenApp {
     generating: bool,
     rx: Option<Receiver<GenMsg>>,
     texture: Option<egui::TextureHandle>,
+    /// Past renders in `generated/`, newest first.
+    gallery: Vec<Render>,
+    /// Renders beyond `GALLERY_MAX`, reported rather than silently dropped.
+    gallery_extra: usize,
+    thumb_rx: Option<Receiver<ThumbMsg>>,
+    viewing: Option<Viewing>,
     log: Vec<String>,
     /// One-shot: if AI_IMAGEGEN_PROMPT was set, auto-run once on the first frame.
     autostart: bool,
+    /// Gallery scan needs an egui Context, which `new` doesn't have handy.
+    first_frame: bool,
 }
 
 impl ImagenApp {
@@ -207,8 +242,89 @@ impl ImagenApp {
             generating: false,
             rx: None,
             texture: None,
+            gallery: Vec::new(),
+            gallery_extra: 0,
+            thumb_rx: None,
+            viewing: None,
             log: Vec::new(),
             autostart,
+            first_frame: true,
+        }
+    }
+
+    /// Rescan `generated/` and kick off thumbnailing for anything new.
+    ///
+    /// Textures already uploaded are kept, so the periodic refresh after a
+    /// render only decodes the one file that appeared.
+    fn refresh_gallery(&mut self, ctx: &egui::Context) {
+        let dir = self.root.join("generated");
+        // Sort on mtime, not name: `generate.sh` output leads with a
+        // yyyymmdd_hhmmss stamp, but hand-named keepers (klein-style-anime.png)
+        // don't, and letters sort after digits — by name those would all pile up
+        // at the "newest" end. Name breaks ties, for renders within one second.
+        let mut found: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")))
+            .map(|path| {
+                let mtime = path
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                (mtime, path)
+            })
+            .collect();
+        found.sort_unstable();
+        found.reverse();
+        let mut paths: Vec<PathBuf> = found.into_iter().map(|(_, path)| path).collect();
+        self.gallery_extra = paths.len().saturating_sub(GALLERY_MAX);
+        paths.truncate(GALLERY_MAX);
+
+        let mut known: HashMap<PathBuf, Option<egui::TextureHandle>> =
+            self.gallery.drain(..).map(|r| (r.path, r.thumb)).collect();
+        let mut todo = Vec::new();
+        self.gallery = paths
+            .into_iter()
+            .map(|path| {
+                let thumb = known.remove(&path).flatten();
+                if thumb.is_none() {
+                    todo.push(path.clone());
+                }
+                Render { path, thumb }
+            })
+            .collect();
+
+        if todo.is_empty() {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.thumb_rx = Some(rx);
+        let ctx = ctx.clone();
+        thread::spawn(move || {
+            for path in todo {
+                let Some(image) = thumbnail(&path, TILE_PX) else {
+                    continue; // unreadable file: leave its tile as a spinner
+                };
+                if tx.send(ThumbMsg { path, image }).is_err() {
+                    return; // a newer refresh replaced us
+                }
+                ctx.request_repaint();
+            }
+        });
+    }
+
+    /// Put a finished render in the preview pane, described by its own record.
+    fn show_render(&mut self, ctx: &egui::Context, path: &Path) {
+        match load_color_image(path) {
+            Ok(image) => {
+                self.texture =
+                    Some(ctx.load_texture("preview", image, egui::TextureOptions::LINEAR));
+                self.status = format!("Showing: {}", path.display());
+                self.viewing = Some(Viewing::read(path));
+            }
+            Err(e) => self.status = format!("Could not open {}: {e}", path.display()),
         }
     }
 
@@ -404,6 +520,86 @@ impl ImagenApp {
             _ => {}
         }
     }
+
+    /// Strip of past renders from `generated/`. Click one to open it in the
+    /// preview; from there it can be fed straight back in as a reference.
+    fn gallery_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let header = match self.gallery_extra {
+            0 => format!("Gallery ({})", self.gallery.len()),
+            extra => format!("Gallery ({} newest, {extra} older)", self.gallery.len()),
+        };
+        egui::CollapsingHeader::new(header)
+            .default_open(true)
+            .show(ui, |ui| {
+                if self.gallery.is_empty() {
+                    ui.small("Nothing in generated/ yet.");
+                    return;
+                }
+                let mut open = None;
+                egui::ScrollArea::horizontal()
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            for r in &self.gallery {
+                                let Some(tex) = &r.thumb else {
+                                    // Still being decoded by the loader thread.
+                                    ui.add_sized([TILE, TILE], egui::Spinner::new());
+                                    continue;
+                                };
+                                let px = tex.size_vec2();
+                                let sized = egui::load::SizedTexture::new(
+                                    tex.id(),
+                                    px * (TILE / px.x.max(px.y)),
+                                );
+                                if ui
+                                    .add(egui::ImageButton::new(sized))
+                                    .on_hover_text(short_name(&r.path))
+                                    .clicked()
+                                {
+                                    open = Some(r.path.clone());
+                                }
+                            }
+                        });
+                    });
+                if let Some(path) = open {
+                    self.show_render(ctx, &path);
+                }
+            });
+    }
+
+    /// Caption under the preview: what this image is, and what made it.
+    fn viewing_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let Some(viewing) = &self.viewing else {
+            return;
+        };
+        let (params, prompt, path) = (
+            viewing.params.clone(),
+            viewing.prompt.clone(),
+            viewing.path.clone(),
+        );
+        ui.horizontal(|ui| {
+            ui.small(params);
+            if ui
+                .add_enabled(
+                    !self.generating,
+                    egui::Button::new("Use as reference").small(),
+                )
+                .on_hover_text("Edit this render further: adds it to the reference images")
+                .clicked()
+            {
+                self.add_ref(ctx, path);
+            }
+        });
+        match prompt {
+            // Selectable so a prompt worth keeping can be copied back out.
+            Some(prompt) => {
+                ui.add(egui::Label::new(egui::RichText::new(prompt).small()).wrap());
+            }
+            None => {
+                ui.small("No prompt recorded in this file.");
+            }
+        }
+    }
 }
 
 /// Run `generate.sh`, streaming each output line back over `tx`, then report the
@@ -528,11 +724,86 @@ fn load_color_image(path: &Path) -> Result<ColorImage, String> {
 /// Small preview texture for a reference image. `None` if we can't decode it —
 /// that's cosmetic only, the path is still handed to the script.
 fn load_thumbnail(ctx: &egui::Context, path: &Path) -> Option<egui::TextureHandle> {
-    let img = image::open(path).ok()?.thumbnail(THUMB_PX, THUMB_PX);
-    let rgba = img.to_rgba8();
-    let size = [rgba.width() as usize, rgba.height() as usize];
-    let color = ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+    let color = thumbnail(path, THUMB_PX)?;
     Some(ctx.load_texture(path.to_string_lossy(), color, egui::TextureOptions::LINEAR))
+}
+
+/// Decode `path` down to a `max`-pixel thumbnail. The gallery calls this from a
+/// worker thread — a full render is megabytes, and decoding a screenful of them
+/// on the UI thread would stall the window.
+fn thumbnail(path: &Path, max: u32) -> Option<ColorImage> {
+    let rgba = image::open(path).ok()?.thumbnail(max, max).to_rgba8();
+    let size = [rgba.width() as usize, rgba.height() as usize];
+    Some(ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()))
+}
+
+/// The generation record mflux stores for a render: prompt, seed, steps, size.
+///
+/// It writes that record twice — into a `<name>.metadata.json` sidecar and into
+/// the PNG's own EXIF — but the sidecar is unreliable: the FLUX.2 CLIs call
+/// `ImageUtil.save_image()` without passing `metadata=`, so every flux2 sidecar
+/// is the literal `null` while the embedded copy is complete. Hence: try the
+/// sidecar, then fall back to the copy inside the file. `serde_json`'s streaming
+/// parser stops at the end of the first value, so no brace-matching is needed
+/// (and prompts containing braces or quotes can't derail it).
+fn render_metadata(path: &Path) -> Option<serde_json::Value> {
+    let sidecar = path.with_extension("metadata.json");
+    if let Ok(text) = std::fs::read_to_string(&sidecar) {
+        match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(v) if v.is_object() => return Some(v),
+            _ => {} // `null` from the flux2 path — fall through to the PNG
+        }
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let needle = br#"{"mflux_version"#;
+    let start = bytes.windows(needle.len()).position(|w| w == needle)?;
+    serde_json::Deserializer::from_slice(&bytes[start..])
+        .into_iter::<serde_json::Value>()
+        .next()?
+        .ok()
+}
+
+/// `20260818_130917_flux2.png` -> `flux2`; anything else keeps its stem.
+fn model_from_name(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match stem.splitn(3, '_').nth(2) {
+        Some(model) if !model.is_empty() => model.to_owned(),
+        _ => stem,
+    }
+}
+
+impl Viewing {
+    fn read(path: &Path) -> Self {
+        let meta = render_metadata(path);
+        let num = |key: &str| {
+            meta.as_ref()
+                .and_then(|m| m.get(key))
+                .and_then(serde_json::Value::as_u64)
+        };
+        let mut params = vec![model_from_name(path)];
+        if let Some(steps) = num("steps") {
+            params.push(format!("{steps} steps"));
+        }
+        if let Some(seed) = num("seed") {
+            params.push(format!("seed {seed}"));
+        }
+        if let (Some(w), Some(h)) = (num("width"), num("height")) {
+            params.push(format!("{w}×{h}"));
+        }
+        Self {
+            path: path.to_path_buf(),
+            params: params.join(" · "),
+            prompt: meta
+                .as_ref()
+                .and_then(|m| m.get("prompt"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|p| !p.is_empty())
+                .map(str::to_owned),
+        }
+    }
 }
 
 /// Extensions accepted from a drag-and-drop (the file picker filters its own).
@@ -562,18 +833,18 @@ fn short_name(path: &Path) -> String {
 impl eframe::App for ImagenApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Drain everything the worker has sent since last frame.
+        let mut new_render = false;
         if let Some(rx) = self.rx.take() {
             let mut finished = false;
             loop {
                 match rx.try_recv() {
                     Ok(GenMsg::Line(line)) => self.push_log(line),
                     Ok(GenMsg::Done { path, image }) => {
-                        self.texture = Some(ctx.load_texture(
-                            "generated",
-                            image,
-                            egui::TextureOptions::LINEAR,
-                        ));
+                        self.texture =
+                            Some(ctx.load_texture("preview", image, egui::TextureOptions::LINEAR));
                         self.status = format!("Saved: {}", path.display());
+                        self.viewing = Some(Viewing::read(&path));
+                        new_render = true;
                         finished = true;
                         break;
                     }
@@ -594,6 +865,39 @@ impl eframe::App for ImagenApp {
             } else {
                 self.rx = Some(rx); // still running — keep listening
             }
+        }
+
+        // Thumbnails trickle in from the loader thread.
+        if let Some(rx) = self.thumb_rx.take() {
+            let mut alive = true;
+            loop {
+                match rx.try_recv() {
+                    Ok(ThumbMsg { path, image }) => {
+                        let tex = ctx.load_texture(
+                            path.to_string_lossy(),
+                            image,
+                            egui::TextureOptions::LINEAR,
+                        );
+                        if let Some(item) = self.gallery.iter_mut().find(|r| r.path == path) {
+                            item.thumb = Some(tex);
+                        }
+                    }
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        alive = false;
+                        break;
+                    }
+                }
+            }
+            if alive {
+                self.thumb_rx = Some(rx);
+            }
+        }
+
+        // First frame builds the gallery; later, a finished render adds to it.
+        if self.first_frame || new_render {
+            self.first_frame = false;
+            self.refresh_gallery(ctx);
         }
 
         // One-shot auto-run (AI_IMAGEGEN_PROMPT) fires on the first frame.
@@ -737,8 +1041,15 @@ impl eframe::App for ImagenApp {
                     });
             }
 
+            ui.add_space(4.0);
+            self.gallery_ui(ui, ctx);
+
+            if self.texture.is_some() {
+                ui.add_space(4.0);
+                self.viewing_ui(ui, ctx);
+            }
             if let Some(tex) = &self.texture {
-                ui.add_space(8.0);
+                ui.add_space(4.0);
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {

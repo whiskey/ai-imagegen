@@ -12,7 +12,19 @@ MFLUX_MODEL=qwen-2512     ./generate.sh "a serene alpine lake at dawn, mist, pin
 ```
 
 Output lands in `generated/` as `<timestamp>_<model>.png` plus a sidecar
-`.json` of the generation metadata.
+`.json` of the generation metadata — prompt, seed, steps, size.
+
+> The sidecar is empty for FLUX.2. mflux's `mflux-generate-flux2` /
+> `-flux2-edit` call `ImageUtil.save_image()` without passing `metadata=`, so
+> `json.dump(None)` writes a literal `null` — every `flux2` / `flux2-4b` sidecar
+> here is 4 bytes, while Qwen and Z-Image write theirs in full. Nothing is
+> actually lost: mflux embeds the same record in the PNG's EXIF regardless of
+> model, so read it from the image (`exiftool`, or the desktop app's gallery,
+> which falls back to it automatically):
+>
+> ```bash
+> .venv/bin/python -c "import json,sys; b=open(sys.argv[1],'rb').read(); i=b.find(b'{\"mflux_version'); print(json.JSONDecoder().raw_decode(b[i:].decode('utf-8','replace'))[0]['prompt'])" generated/<file>.png
+> ```
 
 ### Tunables (env vars)
 

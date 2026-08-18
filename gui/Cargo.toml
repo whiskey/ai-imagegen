@@ -16,3 +16,5 @@ image = { version = "0.25", default-features = false, features = [
 ] }
 # Native file picker for choosing reference images (AppKit panel on macOS).
 rfd = "0.15"
+# Reading the generation record mflux embeds in each PNG (see render_metadata).
+serde_json = "1"
