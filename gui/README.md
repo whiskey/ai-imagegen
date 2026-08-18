@@ -66,6 +66,73 @@ left — a denoising pass caught halfway. To change it, edit the drawing in
 If a rebuilt icon still doesn't refresh in Dock/Finder, that part *is* macOS icon
 caching — `killall Dock` or move the `.app` to force it.
 
+## Layout
+
+A split view, sized for a landscape screen: everything you *set* lives in the
+sidebar on the left, and the whole right-hand side is the picture.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ File   Render   View                                         │  in-window menu bar
+├────────────────────────────┬─────────────────────────────────┤
+│ Model  ▾                   │                                 │
+│ Reference image  [Add…]    │                                 │
+│ Prompt                     │        the render, scaled       │
+│ Overrides (size/steps/seed)│        to fit the pane          │
+│                            │                                 │
+│ ── Generate         ⌘⏎ ──  │                                 │
+│                            ├─────────────────────────────────┤
+│ Gallery                    │ file · model · steps · seed · px│
+│  ▣ ▣ ▣ ▣                   │ the prompt that produced it     │
+│  ▣ ▣ ▣ ▣                   ├─────────────────────────────────┤
+│  ▣ ▣ ▣ ▣                   │ Log (⌘L)                        │
+├────────────────────────────┴─────────────────────────────────┤
+│ Saved: generated/20260818_154801_flux2.png            [Log]  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Every divider is draggable — sidebar width, gallery height, log height — and
+egui remembers where you put them for the session. **⌘B** hides the sidebar
+entirely when you just want to look at a render; **Fit** / **1:1** in the caption
+row (**⌘0** / **⌘1**) switch between fit-to-pane and actual pixels, the latter
+scrollable. Fit never enlarges past 1:1, so a small image stays crisp instead of
+being blown up into mush.
+
+The log sits inside the right-hand pane rather than spanning the window, so
+opening it shortens the picture and leaves the sidebar alone. It opens itself
+when a render starts and when one fails — the reason is in the output.
+
+## Menus and shortcuts
+
+egui draws no native macOS menu, so the app carries its own menu bar. Every item
+is also a keyboard shortcut, and both routes run the same code:
+
+| Menu | Action | Shortcut |
+|---|---|---|
+| **Render** | Generate | ⌘⏎ |
+| | Focus the prompt | ⌘P |
+| | Newer / older render | ⌘\[ / ⌘] |
+| **File** | Add reference image… | ⌘O |
+| | Clear references | ⌘⇧K |
+| | Use the shown image as a reference | ⌘E |
+| | Reveal in Finder | ⌘⇧R |
+| | Open in default viewer | ⌘⇧O |
+| | Copy image path | ⌘⇧C |
+| | Refresh gallery | ⌘R |
+| **View** | Show/hide sidebar | ⌘B |
+| | Show/hide log | ⌘L |
+| | Fit to window / actual pixels | ⌘0 / ⌘1 |
+
+⌘ is Ctrl on Windows/Linux — the shortcuts are declared with egui's `COMMAND`
+modifier and the menus print whichever the platform uses. The image actions work
+on whatever the detail pane is showing; right-clicking a specific file gets the
+same list for *that* file (see below).
+
+Two things worth knowing about the implementation: shortcuts are consumed before
+any widget is drawn, so ⌘⏎ never lands in the prompt box as a newline, and the
+⇧ variants are matched first — `consume_shortcut` ignores *extra* Shift, so a ⌘R
+test run earlier would swallow ⌘⇧R too.
+
 ## How it works
 
 - The model dropdown lists the `generate.sh` aliases (`flux2`, `flux2-4b`,
@@ -82,7 +149,9 @@ caching — `killall Dock` or move the `.app` to force it.
 - Its stdout/stderr stream into a live **Log** panel as the render runs (including
   the step progress bar), so you can watch instead of guessing.
 - On success the script prints `Saved: <path>`; the app parses that line and loads
-  the PNG. Images are also written to `../generated/` as usual.
+  the PNG. Images are also written to `../generated/` as usual. The status bar
+  shows that path relative to the checkout — the file name is the part that
+  carries meaning, and a screenshot of the window then leaks no home directory.
 
 ## Reference images
 
@@ -106,15 +175,49 @@ reference's own dimensions, the rest fall back to 1024².
 
 For scripted runs (or a documentation screenshot), `AI_IMAGEGEN_IMAGE` preloads
 reference images the same way `AI_IMAGEGEN_PROMPT` preloads the prompt —
-colon-separated paths, like `PATH`.
+colon-separated paths, like `PATH`. A prompt set that way also auto-runs on the
+first frame, which is how `docs/assets/gui.jpg` is shot: symlink the checkout and
+the model store under `/Users/Shared`, then launch through them so the paths in
+the log carry no user name (`generate.sh` takes `pwd` logically, so the symlink
+survives into `SCRIPT_DIR` and no weights are re-downloaded):
+
+```bash
+ln -sfn "$PWD" /Users/Shared/ai-imagegen
+ln -sfn "$HOME/ai-models" /Users/Shared/ai-models
+open -n --env AI_IMAGEGEN_ROOT=/Users/Shared/ai-imagegen \
+        --env AI_MODELS_DIR=/Users/Shared/ai-models \
+        --env AI_IMAGEGEN_POS=40,60 \
+        --env AI_IMAGEGEN_IMAGE=/Users/Shared/ai-imagegen/generated/klein-style-photo.png \
+        --env "AI_IMAGEGEN_PROMPT=put a knitted red scarf on the fox, keep the pose and background" \
+        "dist/AI ImageGen.app"
+```
+
+The status bar needs no such care any more — it prints the repo-relative path.
 
 ## Gallery
 
-Everything in `../generated/` shows up as a strip of tiles under the log, newest
-first. Click one to open it in the preview; the caption underneath reports the
-model, steps, seed and size, and the prompt that produced it — so an old render
-can be traced back without leaving the app. **Use as reference** feeds it straight
-back in as a reference image, which is how you iterate on your own output.
+Everything in `../generated/` fills the lower half of the sidebar as a wrapping
+grid of tiles, newest first. Click one to open it in the detail pane — the tile
+of whatever is shown keeps a highlight — and the caption under the picture
+reports the model, steps, seed and size plus the prompt that produced it, so an
+old render can be traced back without leaving the app. **Use as reference** feeds
+it straight back in as a reference image, which is how you iterate on your own
+output. **⌘\[** / **⌘]** walk to the newer/older render and scroll its tile into
+view, which beats hunting through a grid of near-identical foxes.
+
+**Right-click any tile** (or the big preview, or a reference thumbnail) for the
+things this app has no business reimplementing:
+
+- **Reveal in Finder** — `open -R`, i.e. the file selected in its folder.
+- **Open in default viewer** — hand the PNG to Preview or whatever owns it.
+- **Copy image path** — the absolute path, for a terminal or another app.
+- **Use image as reference** — the same iterate-on-your-own-output loop.
+
+The same four sit in the **File** menu, where they act on the image currently in
+the detail pane. On Windows/Linux the first one becomes Explorer's
+`/select,<path>` and `xdg-open <folder>` respectively (no portable "select this
+file" exists), and the helper process is reaped on a throwaway thread rather
+than left as a zombie.
 
 Two details worth knowing:
 
@@ -142,5 +245,9 @@ than silently dropped.
   you'd point it at a different backend. The path to `generate.sh` is the parent of
   this crate; override with `AI_IMAGEGEN_ROOT=/path/to/ai-imagegen`.
 - No quantization control yet (`MFLUX_QUANT` from the script would cover it), and
-  the gallery is read-only — no delete, rename or reveal-in-Finder.
+  the gallery still can't delete or rename — reveal, open and copy-path hand that
+  housekeeping to Finder instead.
+- **A running render can't be cancelled.** Killing the `bash` wrapper would leave
+  mflux itself churning on the GPU, so the button stays disabled until the script
+  is done rather than pretending otherwise.
 - The file picker is native (`rfd`); everything else is egui.

@@ -83,7 +83,14 @@ on the fox"* — and several references can be combined; every other model takes
 reference as an img2img starting point instead. Details:
 [reference images](docs/usage/generating.md#reference-images).
 
-<img src="docs/assets/gui.jpg" alt="The desktop app: model picker, a reference image in edit mode, prompt box, live render log and the finished image" width="420">
+The window is a split view: model, prompt, options and the gallery of past
+renders on the left, the picture itself filling the whole right-hand side.
+**⌘⏎** starts a render, **⌘\[** / **⌘]** walk the gallery, **⌘B** hides the
+sidebar, and right-clicking any render reveals it in Finder, opens it, copies
+its path or feeds it back in as a reference —
+[menus and shortcuts](gui/README.md#menus-and-shortcuts).
+
+<img src="docs/assets/gui.jpg" alt="The desktop app: sidebar with model picker, a reference image in edit mode, prompt box and the gallery of past renders; the finished image fills the right-hand pane above its caption and the live render log" width="820">
 
 ```bash
 cd gui
