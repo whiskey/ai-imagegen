@@ -83,7 +83,7 @@ on the fox"* — and several references can be combined; every other model takes
 reference as an img2img starting point instead. Details:
 [reference images](docs/usage/generating.md#reference-images).
 
-<img src="docs/assets/gui.jpg" alt="The desktop app: model picker, prompt box, live render log and the finished image" width="420">
+<img src="docs/assets/gui.jpg" alt="The desktop app: model picker, a reference image in edit mode, prompt box, live render log and the finished image" width="420">
 
 ```bash
 cd gui
