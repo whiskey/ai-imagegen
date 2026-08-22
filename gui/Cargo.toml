@@ -18,3 +18,9 @@ image = { version = "0.25", default-features = false, features = [
 rfd = "0.15"
 # Reading the generation record mflux embeds in each PNG (see render_metadata).
 serde_json = "1"
+
+# killpg(2) for the Abort button: `generate.sh` runs mflux as a *child*, so a
+# render is only really stopped by signalling the whole process group. Already
+# in the tree via eframe/rfd, so this costs no extra build.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

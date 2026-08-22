@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -193,6 +194,8 @@ const SC_LOG: egui::KeyboardShortcut = egui::KeyboardShortcut::new(CMD, egui::Ke
 const SC_FIT: egui::KeyboardShortcut = egui::KeyboardShortcut::new(CMD, egui::Key::Num0);
 const SC_ACTUAL: egui::KeyboardShortcut = egui::KeyboardShortcut::new(CMD, egui::Key::Num1);
 const SC_PROMPT: egui::KeyboardShortcut = egui::KeyboardShortcut::new(CMD, egui::Key::P);
+/// ⌘. — the platform's own "stop what you're doing" key since System 6.
+const SC_ABORT: egui::KeyboardShortcut = egui::KeyboardShortcut::new(CMD, egui::Key::Period);
 
 /// What the platform calls "show this file in the file manager".
 #[cfg(target_os = "macos")]
@@ -208,6 +211,8 @@ const REVEAL_LABEL: &str = "Show in file manager";
 /// has to mutate the app while the widget that triggered it is still borrowed.
 enum Act {
     Generate,
+    /// Call off the render that is running.
+    Abort,
     AddRefs,
     ClearRefs,
     UseAsRef(PathBuf),
@@ -233,8 +238,31 @@ enum Act {
 /// Streamed from the background generation thread to the UI.
 enum GenMsg {
     Line(String),
-    Done { path: PathBuf, image: ColorImage },
+    Done {
+        path: PathBuf,
+        image: ColorImage,
+    },
     Failed(String),
+    /// The run stopped because the user asked it to — not an error.
+    Aborted,
+}
+
+/// The handle the UI keeps on a running render so it can be called off.
+///
+/// Plain atomics rather than a `Mutex<Child>`: the worker sits in
+/// `child.wait()` for the whole render, so anything it holds a lock on would
+/// hold the UI thread hostage for exactly as long as the render the user is
+/// trying to escape.
+#[derive(Default)]
+struct Cancel {
+    /// The `bash` wrapper's pid — and, thanks to `process_group(0)`, the group
+    /// id of the whole render. 0 until it has actually been spawned.
+    pid: AtomicU32,
+    /// The user asked to stop. Read by the worker so a killed run is reported
+    /// as an abort instead of as "generate.sh exited with signal: 15".
+    requested: AtomicBool,
+    /// The child has been reaped — the escalation watchdog can stand down.
+    done: AtomicBool,
 }
 
 /// Everything the worker thread needs to run one generation.
@@ -246,6 +274,7 @@ struct GenParams {
     /// Reference images — extra positional args after the prompt.
     refs: Vec<PathBuf>,
     env: Vec<(String, String)>,
+    cancel: Arc<Cancel>,
 }
 
 struct ImagenApp {
@@ -263,6 +292,10 @@ struct ImagenApp {
     seed: u32,
     status: String,
     generating: bool,
+    /// Reaches into the running render; None when nothing is running.
+    cancel: Option<Arc<Cancel>>,
+    /// An abort has been signalled and we're waiting for the child to die.
+    aborting: bool,
     rx: Option<Receiver<GenMsg>>,
     texture: Option<egui::TextureHandle>,
     /// Past renders in `generated/`, newest first.
@@ -316,6 +349,8 @@ impl ImagenApp {
             seed: 0,
             status: "Ready.".to_owned(),
             generating: false,
+            cancel: None,
+            aborting: false,
             rx: None,
             texture: None,
             gallery: Vec::new(),
@@ -490,6 +525,7 @@ impl ImagenApp {
     fn act(&mut self, ctx: &egui::Context, act: Act) {
         match act {
             Act::Generate => self.start_generation(ctx),
+            Act::Abort => self.abort_generation(),
             Act::AddRefs => {
                 if !self.generating {
                     self.pick_refs(ctx);
@@ -568,6 +604,11 @@ impl ImagenApp {
             }
         }
 
+        // Shared with the worker so Abort has something to reach into.
+        let cancel = Arc::new(Cancel::default());
+        self.cancel = Some(cancel.clone());
+        self.aborting = false;
+
         let params = GenParams {
             root: self.root.clone(),
             script,
@@ -575,6 +616,7 @@ impl ImagenApp {
             prompt,
             refs: self.refs.iter().map(|r| r.path.clone()).collect(),
             env,
+            cancel,
         };
 
         let (tx, rx) = std::sync::mpsc::channel();
@@ -586,6 +628,54 @@ impl ImagenApp {
 
         let ctx = ctx.clone();
         thread::spawn(move || run_generate(params, tx, ctx));
+    }
+
+    /// Stop the running render — for the prompt that came out wrong, or the
+    /// 20 B model that is going to take another twenty minutes to say so.
+    ///
+    /// The signal goes to the whole process group, not just the `bash` wrapper:
+    /// `generate.sh` runs `mflux-generate` as a child, and *that* is the process
+    /// holding the GPU. Killing only the script would hand the UI back while the
+    /// render churned on invisibly — which is why this button didn't exist
+    /// before. `run_generate` puts the child in a group of its own so the same
+    /// signal can't travel back up into us.
+    fn abort_generation(&mut self) {
+        if !self.generating || self.aborting {
+            return;
+        }
+        let Some(cancel) = self.cancel.clone() else {
+            return;
+        };
+        self.aborting = true;
+        cancel.requested.store(true, Ordering::SeqCst);
+
+        let pid = cancel.pid.load(Ordering::SeqCst);
+        if pid == 0 {
+            // The abort landed in the gap between `spawn` and the pid being
+            // published. The worker re-reads `requested` right after it stores
+            // the pid, and stops itself.
+            self.status = "Stopping the render…".to_owned();
+            return;
+        }
+        if let Err(e) = stop_run(pid, false) {
+            self.status = format!("Could not stop the render: {e}");
+            self.aborting = false;
+            return;
+        }
+        self.status = "Stopping the render…".to_owned();
+        // No `show_log = true` here: the log opens itself when a render starts,
+        // and an abort is not a failure worth overriding a deliberate ⌘L with.
+        self.push_log("[abort] asked the render to stop (SIGTERM)".to_owned());
+
+        // mflux takes SIGTERM at once, but a run wedged elsewhere (a half-loaded
+        // 20 B checkpoint, a stalled download) would leave the app pretending to
+        // stop forever. Follow up with a signal nothing can decline.
+        thread::spawn(move || {
+            thread::sleep(Duration::from_secs(5));
+            if !cancel.done.load(Ordering::SeqCst) {
+                let _ = stop_run(cancel.pid.load(Ordering::SeqCst), true);
+            }
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -606,6 +696,9 @@ impl ImagenApp {
         }
         if hit(&SC_GENERATE) {
             acts.push(Act::Generate);
+        }
+        if hit(&SC_ABORT) {
+            acts.push(Act::Abort);
         }
         if hit(&SC_ADD_REF) {
             acts.push(Act::AddRefs);
@@ -692,6 +785,10 @@ impl ImagenApp {
                     if menu_item(ui, "Generate", &SC_GENERATE, ready) {
                         acts.push(Act::Generate);
                     }
+                    let running = self.generating && !self.aborting;
+                    if menu_item(ui, "Abort render", &SC_ABORT, running) {
+                        acts.push(Act::Abort);
+                    }
                     if menu_item(ui, "Focus prompt", &SC_PROMPT, true) {
                         acts.push(Act::FocusPrompt);
                     }
@@ -729,11 +826,31 @@ impl ImagenApp {
                         acts.push(Act::SetFit(false));
                     }
                 });
-                // Progress belongs where the eye already is during a render.
+                // Progress belongs where the eye already is during a render —
+                // and so does the way out of one. ⌘B can hide the sidebar and
+                // its Abort button with it; the menu bar is always there.
                 if self.generating {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let stop = egui::Button::new(
+                            egui::RichText::new("Abort").color(ui.visuals().error_fg_color),
+                        )
+                        .small();
+                        if ui
+                            .add_enabled(!self.aborting, stop)
+                            .on_hover_text(format!(
+                                "Stop this render — {}",
+                                ui.ctx().format_shortcut(&SC_ABORT)
+                            ))
+                            .clicked()
+                        {
+                            acts.push(Act::Abort);
+                        }
                         ui.spinner();
-                        ui.small("rendering…");
+                        ui.small(if self.aborting {
+                            "stopping…"
+                        } else {
+                            "rendering…"
+                        });
                     });
                 }
             });
@@ -839,8 +956,26 @@ impl ImagenApp {
                             acts.push(Act::Generate);
                         }
                         if self.generating {
+                            let stop = egui::Button::new(
+                                egui::RichText::new("Abort").color(ui.visuals().error_fg_color),
+                            )
+                            .shortcut_text(ui.ctx().format_shortcut(&SC_ABORT))
+                            .min_size(egui::vec2(0.0, 26.0));
+                            if ui
+                                .add_enabled(!self.aborting, stop)
+                                .on_hover_text(
+                                    "Stop this render — the script and the mflux                                      process it drives",
+                                )
+                                .clicked()
+                            {
+                                acts.push(Act::Abort);
+                            }
                             ui.spinner();
-                            ui.label("working…");
+                            ui.label(if self.aborting {
+                                "stopping…"
+                            } else {
+                                "working…"
+                            });
                         }
                     });
                     ui.add_space(4.0);
@@ -1149,7 +1284,10 @@ impl ImagenApp {
                 ui.centered_and_justified(|ui| {
                     let go = ui.ctx().format_shortcut(&SC_GENERATE);
                     ui.label(if self.generating {
-                        "Rendering…".to_owned()
+                        format!(
+                            "Rendering… — {} stops it",
+                            ui.ctx().format_shortcut(&SC_ABORT)
+                        )
                     } else {
                         format!(
                             "Write a prompt and press {go} — or pick a render from the gallery."
@@ -1388,6 +1526,15 @@ fn run_generate(p: GenParams, tx: Sender<GenMsg>, ctx: egui::Context) {
     for (k, v) in &p.env {
         cmd.env(k, v);
     }
+    #[cfg(unix)]
+    {
+        // A process group of its own (pgid = the bash pid), so Abort can signal
+        // the script *and* the mflux process it waits on with a single killpg —
+        // and so that signal can't wander back into this app, which by default
+        // shares its group with everything it spawns.
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -1396,6 +1543,12 @@ fn run_generate(p: GenParams, tx: Sender<GenMsg>, ctx: egui::Context) {
             return;
         }
     };
+    p.cancel.pid.store(child.id(), Ordering::SeqCst);
+    // Abort can only reach a pid it has been told about — if one arrived while
+    // we were spawning, it set the flag and left the killing to us.
+    if p.cancel.requested.load(Ordering::SeqCst) {
+        let _ = stop_run(child.id(), false);
+    }
 
     let stdout = child.stdout.take().expect("piped stdout");
     let stderr = child.stderr.take().expect("piped stderr");
@@ -1422,6 +1575,15 @@ fn run_generate(p: GenParams, tx: Sender<GenMsg>, ctx: egui::Context) {
 
     let _ = err_thread.join();
     let status = child.wait();
+    p.cancel.done.store(true, Ordering::SeqCst); // the watchdog can stand down
+
+    if p.cancel.requested.load(Ordering::SeqCst) {
+        // Killed on purpose: a signal exit status is the expected outcome here,
+        // not a script failure, and there is no `Saved:` path to complain about.
+        let _ = tx.send(GenMsg::Aborted);
+        ctx.request_repaint();
+        return;
+    }
 
     match status {
         Ok(s) if s.success() => {
@@ -1455,6 +1617,46 @@ fn run_generate(p: GenParams, tx: Sender<GenMsg>, ctx: egui::Context) {
         }
     }
     ctx.request_repaint();
+}
+
+/// Stop a running render: the `bash` wrapper *and* the mflux process it is
+/// waiting on, addressed together as the process group `run_generate` gave them.
+///
+/// `force` escalates SIGTERM to SIGKILL. An already-dead group reports success —
+/// the run finishing a moment before the signal landed is not a failure to stop.
+#[cfg(unix)]
+fn stop_run(pid: u32, force: bool) -> std::io::Result<()> {
+    if pid == 0 {
+        return Ok(());
+    }
+    let sig = if force { libc::SIGKILL } else { libc::SIGTERM };
+    // SAFETY: killpg does nothing but deliver a signal to a process group id,
+    // and the only pgid we ever pass is one we created ourselves.
+    if unsafe { libc::killpg(pid as libc::pid_t, sig) } == 0 {
+        return Ok(());
+    }
+    let err = std::io::Error::last_os_error();
+    match err.raw_os_error() {
+        Some(libc::ESRCH) => Ok(()), // already gone
+        _ => Err(err),
+    }
+}
+
+/// Windows has no process groups in the POSIX sense; `taskkill /T` walks the
+/// child tree instead. (The generation backend is macOS-only for now, so this
+/// is here to keep the cross-platform GUI building rather than because anyone
+/// has aborted a render on Windows.)
+#[cfg(not(unix))]
+fn stop_run(pid: u32, _force: bool) -> std::io::Result<()> {
+    if pid == 0 {
+        return Ok(());
+    }
+    Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|_| ())
 }
 
 /// Read a stream and emit one message per line, treating BOTH `\n` and `\r` as
@@ -1630,6 +1832,15 @@ impl eframe::App for ImagenApp {
                         finished = true;
                         break;
                     }
+                    Ok(GenMsg::Aborted) => {
+                        self.status = "Render aborted.".to_owned();
+                        self.push_log("[abort] render stopped".to_owned());
+                        // A run killed in its last moment can still have written
+                        // its PNG; let the rescan decide rather than assume.
+                        new_render = true;
+                        finished = true;
+                        break;
+                    }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
                         finished = true;
@@ -1639,6 +1850,8 @@ impl eframe::App for ImagenApp {
             }
             if finished {
                 self.generating = false;
+                self.aborting = false;
+                self.cancel = None;
             } else {
                 self.rx = Some(rx); // still running — keep listening
             }

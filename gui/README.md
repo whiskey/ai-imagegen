@@ -80,7 +80,7 @@ sidebar on the left, and the whole right-hand side is the picture.
 │ Prompt                     │        the render, scaled       │
 │ Overrides (size/steps/seed)│        to fit the pane          │
 │                            │                                 │
-│ ── Generate         ⌘⏎ ──  │                                 │
+│── Generate ⌘⏎ · Abort ⌘. ──│                                 │
 │                            ├─────────────────────────────────┤
 │ Gallery                    │ file · model · steps · seed · px│
 │  ▣ ▣ ▣ ▣                   │ the prompt that produced it     │
@@ -110,6 +110,7 @@ is also a keyboard shortcut, and both routes run the same code:
 | Menu | Action | Shortcut |
 |---|---|---|
 | **Render** | Generate | ⌘⏎ |
+| | Abort the running render | ⌘. |
 | | Focus the prompt | ⌘P |
 | | Newer / older render | ⌘\[ / ⌘] |
 | **File** | Add reference image… | ⌘O |
@@ -146,6 +147,18 @@ test run earlier would swallow ⌘⇧R too.
   background thread, so the window stays responsive during the render (seconds per
   image for `flux2` / `z-image-turbo` once the weights are loaded, longer for the
   20 B models — and the first run of a session pays the load + quantize cost).
+- **Abort** calls a running render off — for the prompt that came out wrong, or
+  the 20 B model that is going to take another twenty minutes to say so. The
+  button sits next to *Generate* and, because ⌘B can hide the sidebar, in the menu
+  bar next to the spinner; ⌘. and **Render ▸ Abort render** do the same thing.
+  What makes it honest is *what* gets signalled: the whole process group, not just
+  the `bash` wrapper. `generate.sh` runs `mflux-generate` as a child, and that
+  child is the one holding the GPU — killing the script alone would hand the
+  window back while the render churned on invisibly. So the run is spawned with
+  `process_group(0)`: a group of its own means one `killpg` reaches script and
+  model together, and that signal can't travel back up into the app. SIGTERM
+  first; if anything is still alive five seconds later (a half-loaded checkpoint,
+  a stalled download) it gets a SIGKILL it can't decline.
 - Its stdout/stderr stream into a live **Log** panel as the render runs (including
   the step progress bar), so you can watch instead of guessing.
 - On success the script prints `Saved: <path>`; the app parses that line and loads
@@ -247,7 +260,11 @@ than silently dropped.
 - No quantization control yet (`MFLUX_QUANT` from the script would cover it), and
   the gallery still can't delete or rename — reveal, open and copy-path hand that
   housekeeping to Finder instead.
-- **A running render can't be cancelled.** Killing the `bash` wrapper would leave
-  mflux itself churning on the GPU, so the button stays disabled until the script
-  is done rather than pretending otherwise.
+- **Quitting the window mid-render does not stop the render.** Abort is the way
+  out. The run gets a process group of its own precisely so signals don't cross
+  between it and the app, and that cuts both ways: close the window and mflux is
+  orphaned, still working, still holding the GPU.
+- **An aborted run leaves no image.** mflux writes its PNG once, at the end, so
+  there is nothing half-saved to clean up — but also nothing to show for the steps
+  that did run.
 - The file picker is native (`rfd`); everything else is egui.
