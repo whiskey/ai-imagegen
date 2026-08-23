@@ -157,6 +157,8 @@ const TILE_PX: u32 = 144;
 /// How many of the newest renders get a tile. The rest are counted in the
 /// header rather than quietly dropped.
 const GALLERY_MAX: usize = 200;
+/// How often `generated/` is re-examined for changes made outside the app.
+const GALLERY_POLL: Duration = Duration::from_secs(2);
 
 /// Where `generate.sh` lives. Baked in at build time (parent of this crate),
 /// overridable at runtime with `AI_IMAGEGEN_ROOT` for a relocated checkout.
@@ -303,6 +305,8 @@ struct ImagenApp {
     /// Renders beyond `GALLERY_MAX`, reported rather than silently dropped.
     gallery_extra: usize,
     thumb_rx: Option<Receiver<ThumbMsg>>,
+    /// Ticks whenever `generated/` changed on disk without us doing it.
+    watch_rx: Receiver<()>,
     viewing: Option<Viewing>,
     log: Vec<String>,
     /// Panel visibility and preview zoom — driven by the View menu.
@@ -334,8 +338,10 @@ impl ImagenApp {
                 path: PathBuf::from(p),
             })
             .collect();
+        let root = repo_root();
+        let watch_rx = spawn_gallery_watch(root.join("generated"), cc.egui_ctx.clone());
         Self {
-            root: repo_root(),
+            root,
             prompt,
             model_idx: 0,
             refs,
@@ -356,6 +362,7 @@ impl ImagenApp {
             gallery: Vec::new(),
             gallery_extra: 0,
             thumb_rx: None,
+            watch_rx,
             viewing: None,
             log: Vec::new(),
             show_sidebar: true,
@@ -390,6 +397,7 @@ impl ImagenApp {
     /// Textures already uploaded are kept, so the periodic refresh after a
     /// render only decodes the one file that appeared.
     fn refresh_gallery(&mut self, ctx: &egui::Context) {
+        self.forget_missing_view();
         let dir = self.root.join("generated");
         // Sort on mtime, not name: `generate.sh` output leads with a
         // yyyymmdd_hhmmss stamp, but hand-named keepers (klein-style-anime.png)
@@ -460,6 +468,23 @@ impl ImagenApp {
             }
             Err(e) => self.status = format!("Could not open {}: {e}", path.display()),
         }
+    }
+
+    /// Let go of the detail pane when the file it is showing has been deleted.
+    ///
+    /// Called from `refresh_gallery`, so it reacts to the same things the grid
+    /// does — the two would otherwise disagree, one tile short of a picture
+    /// that no longer exists and whose Reveal in Finder now goes nowhere.
+    fn forget_missing_view(&mut self) {
+        let Some(path) = self.viewing.as_ref().map(|v| v.path.clone()) else {
+            return;
+        };
+        if path.exists() {
+            return;
+        }
+        self.viewing = None;
+        self.texture = None;
+        self.status = format!("{} is gone.", self.pretty(&path));
     }
 
     /// Move the selection through the gallery (newest first, so -1 is newer).
@@ -1711,6 +1736,72 @@ fn thumbnail(path: &Path, max: u32) -> Option<ColorImage> {
     Some(ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()))
 }
 
+/// Notice when `generated/` changes behind the app's back — a render deleted in
+/// Finder, a keeper renamed, a file dropped into the folder — and nudge the UI
+/// to rescan. Each tick means "something moved", not what.
+///
+/// A poll rather than a filesystem watcher: `generated/` holds a few hundred
+/// files at most, so stat-ing them costs less than the frame it would take to
+/// draw them, and it needs no dependency (FSEvents would want a debouncer on
+/// top before it was usable). The thread sleeps between rounds and only speaks
+/// up when the fingerprint actually moves, so an idle window stays idle.
+fn spawn_gallery_watch(dir: PathBuf, ctx: egui::Context) -> Receiver<()> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let mut last = gallery_fingerprint(&dir);
+        loop {
+            thread::sleep(GALLERY_POLL);
+            let now = gallery_fingerprint(&dir);
+            if now == last {
+                continue;
+            }
+            last = now;
+            if tx.send(()).is_err() {
+                return; // the window is gone
+            }
+            ctx.request_repaint();
+        }
+    });
+    rx
+}
+
+/// A cheap summary of what `generated/` holds: every PNG's name, size and
+/// modification time, hashed. Enough to notice a file appearing, vanishing or
+/// being written over, without decoding a single pixel.
+///
+/// `read_dir` yields entries in whatever order the filesystem likes, so the
+/// list is sorted before hashing — otherwise the fingerprint would flap on its
+/// own and the gallery would rescan forever.
+fn gallery_fingerprint(dir: &Path) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut entries: Vec<(std::ffi::OsString, u128, u64)> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|x| x.eq_ignore_ascii_case("png"))
+        })
+        .map(|e| {
+            let meta = e.metadata().ok();
+            let mtime = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos());
+            (e.file_name(), mtime, meta.map_or(0, |m| m.len()))
+        })
+        .collect();
+    entries.sort_unstable();
+
+    let mut hasher = DefaultHasher::new();
+    entries.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// The generation record mflux stores for a render: prompt, seed, steps, size.
 ///
 /// It writes that record twice — into a `<name>.metadata.json` sidecar and into
@@ -1884,8 +1975,11 @@ impl eframe::App for ImagenApp {
             }
         }
 
-        // First frame builds the gallery; later, a finished render adds to it.
-        if self.first_frame || new_render {
+        // The gallery is a view of `generated/`, so it follows the folder: the
+        // first frame builds it, a finished render adds to it, and the watch
+        // thread reports anything done to the files behind the app's back.
+        let dir_changed = self.watch_rx.try_iter().count() > 0;
+        if self.first_frame || new_render || dir_changed {
             self.first_frame = false;
             self.refresh_gallery(ctx);
         }

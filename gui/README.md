@@ -119,7 +119,7 @@ is also a keyboard shortcut, and both routes run the same code:
 | | Reveal in Finder | ⌘⇧R |
 | | Open in default viewer | ⌘⇧O |
 | | Copy image path | ⌘⇧C |
-| | Refresh gallery | ⌘R |
+| | Refresh gallery (it also follows the folder on its own) | ⌘R |
 | **View** | Show/hide sidebar | ⌘B |
 | | Show/hide log | ⌘L |
 | | Fit to window / actual pixels | ⌘0 / ⌘1 |
@@ -218,6 +218,22 @@ it straight back in as a reference image, which is how you iterate on your own
 output. **⌘\[** / **⌘]** walk to the newer/older render and scroll its tile into
 view, which beats hunting through a grid of near-identical foxes.
 
+The grid *is* the folder, and it keeps up with it: delete a render in Finder,
+rename one, drop a PNG in from somewhere else, and the tiles follow within a
+couple of seconds — no ⌘R needed (that's still there to force the issue). A
+watch thread fingerprints `generated/` every two seconds — each PNG's name, size
+and mtime, hashed — and wakes the window only when that number moves. It's a
+poll rather than a filesystem watcher because the folder is small enough that
+stat-ing all of it costs less than drawing one frame, and because FSEvents would
+want a debouncer on top before it was usable. Nothing repaints while the folder
+sits still.
+
+The detail pane follows as well. Delete the render you happen to be looking at
+and the picture goes with its tile, leaving the empty-pane prompt and
+`generated/<name>.png is gone.` in the status bar. Keeping it up would have been
+easy — the texture is already in memory — but it would mean a caption describing
+a file that isn't there and a **Reveal in Finder** that goes nowhere.
+
 **Right-click any tile** (or the big preview, or a reference thumbnail) for the
 things this app has no business reimplementing:
 
@@ -259,7 +275,7 @@ than silently dropped.
   this crate; override with `AI_IMAGEGEN_ROOT=/path/to/ai-imagegen`.
 - No quantization control yet (`MFLUX_QUANT` from the script would cover it), and
   the gallery still can't delete or rename — reveal, open and copy-path hand that
-  housekeeping to Finder instead.
+  housekeeping to Finder, where the result now shows up in the grid by itself.
 - **Quitting the window mid-render does not stop the render.** Abort is the way
   out. The run gets a process group of its own precisely so signals don't cross
   between it and the app, and that cuts both ways: close the window and mflux is
