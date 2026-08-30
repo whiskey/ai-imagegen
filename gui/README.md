@@ -143,6 +143,19 @@ test run earlier would swallow ⌘⇧R too.
   has a checkbox — leave them unchecked for the script's defaults (1024², the
   model's own step count, a random seed); check to override (e.g. a fixed seed for
   reproducibility).
+- The **shape** next to Size picks Square, **Portrait (A4)** or Landscape (A4).
+  Square stays `MFLUX_SIZE`; the other two go out as `MFLUX_W` / `MFLUX_H`,
+  reshaped at *constant area* — 1024 Portrait is 864 × 1216, the same pixel count
+  as 1024², so choosing a page shape doesn't quietly make the render half again
+  as expensive. Both edges snap to the multiple of 16 mflux wants, and the line
+  under the grid spells out what you'll actually get. Portrait is the one to pick
+  for an Ausmalbild you mean to print.
+- **Coloring page (Ausmalbild)** sets `MFLUX_COLORING=1`, and the script appends
+  its line-art recipe to whatever is in the prompt box — black outlines on white,
+  fine detail, closed shapes, no shading. The prompt then only names the subject
+  ("a unicorn in a flower meadow"), which is why the hint above it changes when
+  the box is ticked. It works with a reference image too, turning a photo into a
+  page to colour in.
 - **Generate** runs `bash generate.sh "<prompt>" [reference images…]` on a
   background thread, so the window stays responsive during the render (seconds per
   image for `flux2` / `z-image-turbo` once the weights are loaded, longer for the

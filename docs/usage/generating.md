@@ -41,6 +41,8 @@ Output lands in `generated/` as `<timestamp>_<model>.png` plus a sidecar
 | `MFLUX_IMAGE` | — | one reference image (env form of the extra args below) |
 | `MFLUX_MODE` | `auto` | `edit` \| `img2img` — see below |
 | `MFLUX_STRENGTH` | `0.4` | img2img only: how much of the reference survives (0–1) |
+| `MFLUX_COLORING` | — | `1` to turn the prompt into a coloring page — see below |
+| `MFLUX_COLORING_HINTS` | built-in | replace the coloring recipe with your own wording |
 
 ### Reference images
 
@@ -83,6 +85,47 @@ exists because it bites hard: a 2880×1800 wallpaper as reference renders at
 2880×1800, which peaked at **69 GB on a 64 GB machine** — swapping, 25–34 s per step.
 The same edit at the capped 1440×896 stays near 30 GB and runs ~4 s per step. Raise
 the cap if you have headroom (`MFLUX_MAX_MP=3`), or set an explicit size to bypass it.
+
+### Coloring pages (Ausmalbilder)
+
+`MFLUX_COLORING=1` leaves the prompt as written and appends a line-art recipe to
+it — crisp black outlines on plain white, fine detailed line work, every shape a
+closed outline, no shading or grey tones. The prompt then only has to carry the
+*idea*; the style comes from the toggle:
+
+```bash
+MFLUX_COLORING=1 ./generate.sh "a unicorn standing in a flower meadow, butterflies around it, a castle on a hill in the distance"
+```
+
+![A coloring page: a unicorn in a flower meadow, ornate line work, castle on the hill](../assets/coloring-page.jpg)
+
+~12 s on FLUX.2 [klein] at its default 4 steps. The wording deliberately aims at
+*detailed* pages — ornate patterns, fine enclosed shapes — rather than the
+four-fat-outlines kind. For simpler pages, override the recipe:
+
+```bash
+MFLUX_COLORING_HINTS="simple black and white coloring page for a toddler, very thick bold outlines, large simple shapes, no detail, white background" \
+  MFLUX_COLORING=1 ./generate.sh "a happy elephant with a balloon"
+```
+
+It composes with a reference image, which is the fastest way to turn a photo into
+a page to colour in — the prompt is then the instruction, and the recipe is still
+appended:
+
+```bash
+MFLUX_COLORING=1 ./generate.sh "keep the fox and the forest exactly as they are" fox.png
+```
+
+For printing, set the page shape explicitly:
+
+```bash
+MFLUX_COLORING=1 MFLUX_W=864 MFLUX_H=1216 ./generate.sh "a friendly dragon reading a book under a big tree, birds in the branches"
+```
+
+864 × 1216 is A4 upright to within half a percent, both edges are the multiples
+of 16 mflux wants, and it is the same pixel count as the 1024² default — so the
+page shape costs no extra time or memory. It is also exactly what the desktop
+app's **Portrait (A4)** preset sends at Size 1024.
 
 ### Recipes worth remembering
 

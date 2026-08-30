@@ -29,6 +29,11 @@ set -euo pipefail
 #   MFLUX_MAX_MP=1.3  cap for that reference-derived size, in megapixels
 #   MFLUX_LOWRAM=1    enable --low-ram
 #
+# Coloring pages (Ausmalbilder):
+#   MFLUX_COLORING=1  append the line-art recipe to the prompt: black outlines on
+#                     white, fine detail, closed shapes — a page to colour in
+#   MFLUX_COLORING_HINTS=...  replace that recipe with your own wording
+#
 # Reference images (see the mode block below):
 #   MFLUX_IMAGE=path      one reference image, env-var form of the extra args
 #   MFLUX_MODE=auto       auto (default) | edit | img2img
@@ -51,6 +56,19 @@ fi
 for ref in ${REF_IMAGES[@]+"${REF_IMAGES[@]}"}; do
   [ -f "$ref" ] || { echo "Reference image not found: $ref" >&2; exit 1; }
 done
+
+# Ausmalbild mode: keep the prompt exactly as written and append the line-art
+# recipe, so one prompt renders either as a picture or as something to colour in.
+# The wording aims at *detailed* pages — fine, fully enclosed shapes — not the
+# four-fat-outlines kind a three-year-old gets.
+COLORING="${MFLUX_COLORING:-}"
+case "$COLORING" in 0|no|off|false) COLORING="" ;; esac
+COLORING_HINTS="${MFLUX_COLORING_HINTS:-black and white line art in the style of a detailed coloring book page: clean crisp black ink outlines on a plain white background, intricate and finely detailed line work with ornate decorative patterns, every shape drawn as a closed outline that can be coloured in, even line weight, no shading, no hatching, no grey tones, no colour, no filled black areas, printable}"
+if [ -n "$COLORING" ]; then
+  # Drop trailing punctuation first, or the sentence we append reads "fox.. black".
+  PROMPT="$(printf '%s' "$PROMPT" | sed -E 's/[[:space:]]*[.,;:]+[[:space:]]*$//')"
+  PROMPT="$PROMPT. $COLORING_HINTS"
+fi
 
 MODEL="${MFLUX_MODEL:-flux2}"
 QUANT="${MFLUX_QUANT:-8}"

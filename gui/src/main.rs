@@ -119,6 +119,46 @@ impl RefMode {
     }
 }
 
+/// The page shape an explicit **Size** override asks for.
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum Shape {
+    Square,
+    /// A4 upright — the shape an Ausmalbild gets printed on.
+    Portrait,
+    Landscape,
+}
+
+const SHAPES: &[Shape] = &[Shape::Square, Shape::Portrait, Shape::Landscape];
+
+impl Shape {
+    fn label(self) -> &'static str {
+        match self {
+            Shape::Square => "Square",
+            Shape::Portrait => "Portrait (A4)",
+            Shape::Landscape => "Landscape (A4)",
+        }
+    }
+
+    /// Width and height for a render of the same *area* as `size`².
+    ///
+    /// A4 is 1:√2, so the short edge is `size / 2^¼` and the long one
+    /// `size · 2^¼` — the pixel count stays what the Size box says, and picking
+    /// Portrait can't quietly turn a 1024² render into a 1.5 MP one that costs
+    /// half again as much time and memory. Both edges snap to the multiple of
+    /// 16 mflux wants; anything else it rounds down itself, with a warning.
+    fn dims(self, size: u32) -> (u32, u32) {
+        /// 2^¼ — edge ratio of an A4-shaped rectangle to the square of equal area.
+        const A4: f64 = 1.189_207_115_002_721;
+        let snap = |px: f64| ((px / 16.0).round().max(1.0) as u32) * 16;
+        let (short, long) = (snap(f64::from(size) / A4), snap(f64::from(size) * A4));
+        match self {
+            Shape::Square => (size, size),
+            Shape::Portrait => (short, long),
+            Shape::Landscape => (long, short),
+        }
+    }
+}
+
 /// A chosen reference image: the path handed to `generate.sh`, plus a preview.
 struct RefImage {
     path: PathBuf,
@@ -286,8 +326,11 @@ struct ImagenApp {
     refs: Vec<RefImage>,
     ref_mode: RefMode,
     strength: f32,
+    /// Ausmalbild mode: `generate.sh` appends its line-art recipe to the prompt.
+    coloring: bool,
     override_size: bool,
     size: u32,
+    shape: Shape,
     override_steps: bool,
     steps: u32,
     fixed_seed: bool,
@@ -347,8 +390,10 @@ impl ImagenApp {
             refs,
             ref_mode: RefMode::Edit,
             strength: 0.4, // mflux's own --image-strength default
+            coloring: false,
             override_size: false,
             size: 1024,
+            shape: Shape::Square,
             override_steps: false,
             steps: 20,
             fixed_seed: false,
@@ -612,8 +657,18 @@ impl ImagenApp {
         // Optional overrides -> the env vars generate.sh already reads. Left out,
         // each one keeps the script's own default (1024², model steps, random seed).
         let mut env = Vec::new();
+        if self.coloring {
+            env.push(("MFLUX_COLORING".to_owned(), "1".to_owned()));
+        }
         if self.override_size {
-            env.push(("MFLUX_SIZE".to_owned(), self.size.to_string()));
+            match self.shape {
+                Shape::Square => env.push(("MFLUX_SIZE".to_owned(), self.size.to_string())),
+                shape => {
+                    let (w, h) = shape.dims(self.size);
+                    env.push(("MFLUX_W".to_owned(), w.to_string()));
+                    env.push(("MFLUX_H".to_owned(), h.to_string()));
+                }
+            }
         }
         if self.override_steps {
             env.push(("MFLUX_STEPS".to_owned(), self.steps.to_string()));
@@ -1035,16 +1090,20 @@ impl ImagenApp {
         // in img2img names no subject, so the model invents one from scratch.
         // Hence a stated expectation next to the label, not just an example.
         ui.add_space(10.0);
-        let (expects, hint) = match (self.refs.is_empty(), self.ref_mode) {
-            (true, _) => (
+        let (expects, hint) = match (self.refs.is_empty(), self.coloring, self.ref_mode) {
+            (true, true, _) => (
+                "name the subject and the scene — the line-art style is appended for you",
+                "a unicorn in a flower meadow, butterflies, a castle on the hill…",
+            ),
+            (true, false, _) => (
                 "describe the whole image — subject, setting, style, light",
                 "a vast cyberpunk cityscape at sunset, neon reflections…",
             ),
-            (false, RefMode::Edit) => (
+            (false, _, RefMode::Edit) => (
                 "an instruction: what to change, and what to keep",
                 "put a knitted red scarf on the fox, keep the pose and background",
             ),
-            (false, RefMode::Img2Img) => (
+            (false, _, RefMode::Img2Img) => (
                 "describe the whole image again — the reference only seeds it",
                 "a red fox in a snowy clearing, anime cel illustration…",
             ),
@@ -1063,6 +1122,22 @@ impl ImagenApp {
             prompt.request_focus();
         }
 
+        // Ausmalbilder. The prompt stays the child's idea ("a unicorn in a flower
+        // meadow"); the toggle hands `generate.sh` the part that turns it into a
+        // page to colour in, so it never has to be typed out or remembered.
+        ui.add_space(6.0);
+        ui.add_enabled_ui(!self.generating, |ui| {
+            ui.checkbox(&mut self.coloring, "Coloring page (Ausmalbild)")
+                .on_hover_text(
+                    "Appends a line-art recipe to the prompt (MFLUX_COLORING=1): \
+                     crisp black outlines on white, fine detail, closed shapes, \
+                     no shading — detailed pages, not toddler outlines.",
+                );
+        });
+        if self.coloring && (!self.override_size || self.shape != Shape::Portrait) {
+            ui.small("Printing it? Check Size below and pick Portrait (A4).");
+        }
+
         ui.add_space(10.0);
         ui.strong("Overrides");
         ui.add_enabled_ui(!self.generating, |ui| {
@@ -1079,6 +1154,18 @@ impl ImagenApp {
                                 .speed(8),
                         );
                         ui.label("px");
+                        // The shape reshapes that number rather than replacing
+                        // it, so Size still says how big the render is whatever
+                        // is picked here.
+                        ui.add_enabled_ui(self.override_size, |ui| {
+                            egui::ComboBox::from_id_salt("shape")
+                                .selected_text(self.shape.label())
+                                .show_ui(ui, |ui| {
+                                    for &shape in SHAPES {
+                                        ui.selectable_value(&mut self.shape, shape, shape.label());
+                                    }
+                                });
+                        });
                     });
                     ui.end_row();
 
@@ -1099,6 +1186,16 @@ impl ImagenApp {
                     ui.end_row();
                 });
         });
+        // Neither edge of a non-square shape is the number in the box, so say
+        // what it actually renders instead of leaving it to be discovered.
+        if self.override_size && self.shape != Shape::Square {
+            let (w, h) = self.shape.dims(self.size);
+            ui.small(format!(
+                "{} — {w} × {h} px, the same pixel count as {}².",
+                self.shape.label(),
+                self.size
+            ));
+        }
         // Unchecked Size sends no MFLUX_SIZE: the script then derives the size
         // from the reference (capped at MFLUX_MAX_MP), and without one FLUX.2 /
         // Z-Image Turbo match it while the other tools use their 1024² default.

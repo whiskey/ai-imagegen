@@ -69,13 +69,34 @@ MFLUX_MODEL=qwen-2512 MFLUX_W=1536 MFLUX_H=640 MFLUX_SEED=55 ./generate.sh \
 ~2½ min at 20 steps on the M5 Max; the only post-processing was cropping the
 paper margin off.
 
+### Coloring pages
+
+**Coloring page (Ausmalbild)** in the app — `MFLUX_COLORING=1` on the CLI — keeps
+the prompt and appends a line-art recipe to it: crisp black outlines on plain
+white, fine detailed line work, every shape closed so it can be coloured in. The
+prompt only has to carry the idea.
+
+![A coloring page: a unicorn in a flower meadow, ornate line work, a castle on the hill](docs/assets/coloring-page.jpg)
+
+```bash
+MFLUX_COLORING=1 ./generate.sh "a unicorn standing in a flower meadow, butterflies around it, a castle on a hill in the distance"
+```
+
+~12 s on FLUX.2 [klein]. It aims at *detailed* pages rather than toddler
+outlines, composes with a reference image (turn a photo into a page to colour
+in), and `MFLUX_COLORING_HINTS` replaces the recipe with your own wording. For
+something to print, ask for the page shape — `MFLUX_W=864 MFLUX_H=1216` is A4
+upright, and the app has it as a **Portrait (A4)** preset next to Size —
+[coloring pages](docs/usage/generating.md#coloring-pages-ausmalbilder).
+
 ## Desktop app
 
 `gui/` is a small [egui](https://github.com/emilk/egui)/eframe front-end over the
 very same `generate.sh` — pick a model, type a prompt, watch the render log
 stream, see the result. It duplicates no model logic: it sets `MFLUX_MODEL` /
-`MFLUX_SIZE` / `MFLUX_STEPS` / `MFLUX_SEED` / `MFLUX_MODE` / `MFLUX_STRENGTH` and
-runs the script.
+`MFLUX_SIZE` (or `MFLUX_W`/`MFLUX_H` for a page shape) / `MFLUX_STEPS` /
+`MFLUX_SEED` / `MFLUX_MODE` / `MFLUX_STRENGTH` / `MFLUX_COLORING` and runs the
+script.
 
 Drag an image onto the window (or **Add…**) to use it as a **reference**: with
 FLUX.2 [klein] the prompt then becomes an instruction — *"put a knitted red scarf
