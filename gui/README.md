@@ -269,11 +269,13 @@ Two details worth knowing:
   masquerade as the newest.
 - **The prompt is read out of the PNG, not the sidecar.** mflux writes its
   generation record twice: into `<name>.metadata.json` and into the image's EXIF.
-  The sidecar is unreliable — mflux's FLUX.2 CLIs call `ImageUtil.save_image()`
-  without passing `metadata=`, so `json.dump(None)` lands a literal `null` in
-  every flux2 sidecar, while the embedded copy is complete. The gallery tries the
-  sidecar, then falls back to the record inside the file, which works for every
-  model.
+  The sidecar used to be unreliable — mflux's FLUX.2 CLIs call
+  `ImageUtil.save_image()` without passing `metadata=`, so `json.dump(None)`
+  lands a literal `null` in every flux2 sidecar, while the embedded copy is
+  complete. `generate.sh` now repairs the sidecar from that embedded copy after
+  each render (`png-metadata.py`), but the gallery keeps reading the PNG first
+  regardless: it also has to describe images dropped in from elsewhere, which
+  have no sidecar at all.
 
 Thumbnails are decoded on a worker thread (a screenful of 1024² PNGs is tens of
 megabytes), so the window stays live while they fill in. The newest

@@ -144,6 +144,7 @@ Sorted into **setup** (provision once) and **usage & tips** (day-to-day):
 | `comfyui-start.sh` | launch ComfyUI wired to the shared store |
 | `download-models.sh` | fetch/warm models into the shared store |
 | `blend-styles.py` | cross-fade same-seed renders into one image (see Showcase) |
+| `png-metadata.py` | rebuild the `*.metadata.json` sidecars mflux leaves as `null` |
 | `env.sh` | shared env (HF_HOME, store paths) — sourced by the others |
 | `throttle.sh` | optional macOS inbound-bandwidth cap (see gotchas) |
 
@@ -152,7 +153,7 @@ Sorted into **setup** (provision once) and **usage & tips** (day-to-day):
 ```
 .
 ├── README.md · env.sh · generate.sh · comfyui-start.sh · download-models.sh
-│   throttle.sh · blend-styles.py
+│   throttle.sh · blend-styles.py · png-metadata.py
 ├── docs/{setup,usage}/           # documentation
 ├── docs/assets/                  # README imagery
 ├── gui/                          # desktop front-end (Rust/egui) + .app bundler

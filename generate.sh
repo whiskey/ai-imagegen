@@ -34,6 +34,10 @@ set -euo pipefail
 #                     white, fine detail, closed shapes — a page to colour in
 #   MFLUX_COLORING_HINTS=...  replace that recipe with your own wording
 #
+# Each render also gets a <name>.metadata.json beside it (model, seed, steps,
+# guidance, size, generation time, prompt). Repair a backlog of the `null` ones
+# mflux 0.18 left behind with:  ./png-metadata.py generated/
+#
 # Reference images (see the mode block below):
 #   MFLUX_IMAGE=path      one reference image, env-var form of the extra args
 #   MFLUX_MODE=auto       auto (default) | edit | img2img
@@ -198,6 +202,12 @@ echo "Output: $OUTPUT_FILE"
 echo
 
 "${CMD[@]}" "${ARGS[@]}"
+
+# --metadata is meant to leave a JSON record beside the PNG, but the FLUX.2
+# family (mflux 0.18) writes the four bytes `null` instead and loses seed, time
+# and prompt — for every klein render, i.e. the default model here. The record
+# is in the PNG's own EXIF either way, so put the sidecar back from it.
+"$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/png-metadata.py" --quiet "$OUTPUT_FILE" || true
 
 echo
 echo "Saved: $OUTPUT_FILE"

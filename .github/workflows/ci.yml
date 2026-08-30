@@ -20,7 +20,7 @@ jobs:
       - name: shellcheck
         run: shellcheck ./*.sh gui/*.sh
       - name: python syntax
-        run: python3 -m py_compile blend-styles.py gui/icon/gen-icon.py
+        run: python3 -m py_compile blend-styles.py png-metadata.py gui/icon/gen-icon.py
 
   gui:
     name: rust gui

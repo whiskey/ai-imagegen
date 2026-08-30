@@ -12,19 +12,31 @@ MFLUX_MODEL=qwen-2512     ./generate.sh "a serene alpine lake at dawn, mist, pin
 ```
 
 Output lands in `generated/` as `<timestamp>_<model>.png` plus a sidecar
-`.json` of the generation metadata — prompt, seed, steps, size.
+`.json` of the generation metadata — prompt, seed, steps, guidance, size,
+quantization and `generation_time_seconds`:
 
-> The sidecar is empty for FLUX.2. mflux's `mflux-generate-flux2` /
-> `-flux2-edit` call `ImageUtil.save_image()` without passing `metadata=`, so
-> `json.dump(None)` writes a literal `null` — every `flux2` / `flux2-4b` sidecar
-> here is 4 bytes, while Qwen and Z-Image write theirs in full. Nothing is
-> actually lost: mflux embeds the same record in the PNG's EXIF regardless of
-> model, so read it from the image (`exiftool`, or the desktop app's gallery,
-> which falls back to it automatically):
+```bash
+.venv/bin/python -c "import json,sys; print(json.load(open(sys.argv[1]))['prompt'])" generated/<file>.metadata.json
+```
+
+> **That sidecar is written by us, not always by mflux.** `mflux-generate-flux2`
+> / `-flux2-edit` call `ImageUtil.save_image()` without passing `metadata=`, so
+> `json.dump(None)` writes a literal `null` — left to itself every `flux2` /
+> `flux2-4b` sidecar is 4 bytes, while Qwen and Z-Image write theirs in full.
+> Nothing is lost, because mflux embeds the same record in the PNG's EXIF
+> UserComment whichever model wrote it. So `generate.sh` lifts it back out after
+> each render and writes the sidecar mflux meant to write — same JSON, same
+> indent, byte-identical to a working model's.
+>
+> To fix a backlog of `null` sidecars from before that existed:
 >
 > ```bash
-> .venv/bin/python -c "import json,sys; b=open(sys.argv[1],'rb').read(); i=b.find(b'{\"mflux_version'); print(json.JSONDecoder().raw_decode(b[i:].decode('utf-8','replace'))[0]['prompt'])" generated/<file>.png
+> ./png-metadata.py generated/              # --dry-run first if you like
 > ```
+>
+> Only missing and `null` sidecars are rewritten; a real one is never touched,
+> so it is safe to re-run. PNGs with no embedded record (anything not from
+> mflux) are reported and skipped.
 
 ### Tunables (env vars)
 
