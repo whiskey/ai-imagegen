@@ -112,6 +112,7 @@ is also a keyboard shortcut, and both routes run the same code:
 | **Render** | Generate | ⌘⏎ |
 | | Abort the running render | ⌘. |
 | | Focus the prompt | ⌘P |
+| | Enhance prompt | ⌘⇧E |
 | | Newer / older render | ⌘\[ / ⌘] |
 | **File** | Add reference image… | ⌘O |
 | | Clear references | ⌘⇧K |
@@ -156,6 +157,15 @@ test run earlier would swallow ⌘⇧R too.
   ("a unicorn in a flower meadow"), which is why the hint above it changes when
   the box is ticked. It works with a reference image too, turning a photo into a
   page to colour in.
+- **Enhance** (next to the *Prompt* heading) expands a draft into a full prompt
+  with a local LLM, by shelling out to `enhance.sh` — sketch *"a dragon"*, get the
+  setting, the light and the detail written for you. It runs on a background
+  thread and **Revert** puts your own words back; Revert disappears the moment you
+  type, because the stored draft is then no longer what the box descends from.
+  Which of the script's three modes it asks for is decided by the sidebar: an
+  attached reference in *edit* mode means the prompt is an instruction, a ticked
+  *Coloring page* means no colour or lighting words, otherwise a whole scene.
+  It is disabled during a render — see the memory note below.
 - **Generate** runs `bash generate.sh "<prompt>" [reference images…]` on a
   background thread, so the window stays responsive during the render (seconds per
   image for `flux2` / `z-image-turbo` once the weights are loaded, longer for the
@@ -288,6 +298,13 @@ than silently dropped.
   The *GUI* is cross-platform, but the generation backend is not — on Windows/Linux
   you'd point it at a different backend. The path to `generate.sh` is the parent of
   this crate; override with `AI_IMAGEGEN_ROOT=/path/to/ai-imagegen`.
+- **Enhance needs Ollama running** (and `jq`). Without it the button still works
+  but reports what is missing in the status bar, straight from `enhance.sh`'s own
+  stderr. It is disabled while a render runs, and that is not tidiness: the LLM
+  wants ~31 GB resident and the render peaks near 28 GB, so on a 64 GB machine
+  the two together swap — a measured 78 s for a render that takes 9 s alone.
+  `generate.sh` unloads the LLM before each render for the same reason, which is
+  why the first enhance after a render pays the load again.
 - No quantization control yet (`MFLUX_QUANT` from the script would cover it), and
   the gallery still can't delete or rename — reveal, open and copy-path hand that
   housekeeping to Finder, where the result now shows up in the grid by itself.

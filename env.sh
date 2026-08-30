@@ -21,3 +21,11 @@ export HF_HUB_DISABLE_XET=1
 # ComfyUI-style single-file weights (checkpoints/, loras/, vae/, ...) live here.
 # ComfyUI reads them via comfyui/extra_model_paths.yaml (see comfyui-start.sh).
 export COMFY_MODELS_DIR="$AI_MODELS_DIR/comfyui"
+
+# --- Prompt enhancement (enhance.sh) ----------------------------------------
+# The local LLM that expands a draft prompt into a full one. Served by Ollama,
+# which keeps its own store — these weights are NOT in AI_MODELS_DIR. Both
+# enhance.sh (which calls it) and generate.sh (which unloads it before a render,
+# so the two don't fight over memory) read these.
+export AI_ENHANCE_MODEL="${AI_ENHANCE_MODEL:-hf.co/lmstudio-community/Ministral-3-14B-Reasoning-2512-GGUF:Q4_K_M}"
+export AI_ENHANCE_HOST="${AI_ENHANCE_HOST:-http://localhost:11434}"

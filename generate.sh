@@ -28,6 +28,7 @@ set -euo pipefail
 #                     (with a reference image and none of these set: its own size)
 #   MFLUX_MAX_MP=1.3  cap for that reference-derived size, in megapixels
 #   MFLUX_LOWRAM=1    enable --low-ram
+#   MFLUX_KEEP_LLM=1  don't unload enhance.sh's LLM first (see the note below)
 #
 # Coloring pages (Ausmalbilder):
 #   MFLUX_COLORING=1  append the line-art recipe to the prompt: black outlines on
@@ -200,6 +201,17 @@ echo "Prompt: $PROMPT"
 echo "Cache:  $HF_HOME"
 echo "Output: $OUTPUT_FILE"
 echo
+
+# enhance.sh leaves its LLM resident so you can iterate on a prompt — ~31 GB of
+# it at Ollama's default context. Together with this render's ~28 GB peak that
+# is more than a 64 GB machine has, and the result is not a little slower: the
+# same 4-step klein render measured 78 s against 9 s, swapping through the last
+# step at 25 s/it. So hand the memory back first. No-op if enhance.sh was never
+# used; set MFLUX_KEEP_LLM=1 if you have the headroom and would rather not pay
+# the reload.
+if [ -z "${MFLUX_KEEP_LLM:-}" ] && command -v ollama >/dev/null 2>&1; then
+  ollama stop "$AI_ENHANCE_MODEL" >/dev/null 2>&1 || true
+fi
 
 "${CMD[@]}" "${ARGS[@]}"
 

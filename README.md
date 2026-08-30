@@ -104,6 +104,11 @@ on the fox"* — and several references can be combined; every other model takes
 reference as an img2img starting point instead. Details:
 [reference images](docs/usage/generating.md#reference-images).
 
+**Enhance** next to the prompt turns a sketch into a full prompt with a local
+LLM — type *"a dragon"*, get the cliff, the dusk light and the mist written for
+you, with **Revert** to take it back. It shells out to `enhance.sh`, so the CLI
+has it too: [prompt enhancement](docs/usage/generating.md#prompt-enhancement).
+
 The window is a split view: model, prompt, options and the gallery of past
 renders on the left, the picture itself filling the whole right-hand side.
 **⌘⏎** starts a render, **⌘\[** / **⌘]** walk the gallery, **⌘B** hides the
@@ -145,6 +150,7 @@ Sorted into **setup** (provision once) and **usage & tips** (day-to-day):
 | `download-models.sh` | fetch/warm models into the shared store |
 | `blend-styles.py` | cross-fade same-seed renders into one image (see Showcase) |
 | `png-metadata.py` | rebuild the `*.metadata.json` sidecars mflux leaves as `null` |
+| `enhance.sh` | expand a draft prompt into a full one with a local LLM (Ollama) |
 | `env.sh` | shared env (HF_HOME, store paths) — sourced by the others |
 | `throttle.sh` | optional macOS inbound-bandwidth cap (see gotchas) |
 
@@ -153,7 +159,7 @@ Sorted into **setup** (provision once) and **usage & tips** (day-to-day):
 ```
 .
 ├── README.md · env.sh · generate.sh · comfyui-start.sh · download-models.sh
-│   throttle.sh · blend-styles.py · png-metadata.py
+│   throttle.sh · blend-styles.py · png-metadata.py · enhance.sh
 ├── docs/{setup,usage}/           # documentation
 ├── docs/assets/                  # README imagery
 ├── gui/                          # desktop front-end (Rust/egui) + .app bundler

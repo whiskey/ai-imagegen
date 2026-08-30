@@ -139,6 +139,60 @@ of 16 mflux wants, and it is the same pixel count as the 1024² default — so t
 page shape costs no extra time or memory. It is also exactly what the desktop
 app's **Portrait (A4)** preset sends at Size 1024.
 
+### Prompt enhancement
+
+`enhance.sh` expands a short draft into a full prompt using a local LLM through
+[Ollama](https://ollama.com) — for when you know *what* you want a picture of and
+would rather not write out the setting, the light and the composition. It prints
+the result and nothing else, so it composes:
+
+```bash
+./enhance.sh "a dragon"
+./generate.sh "$(./enhance.sh "a dragon")"
+```
+
+The desktop app has it as the **Enhance** button beside the prompt, with a
+**Revert** to take your own words back.
+
+It has three modes, because a good prompt is not one thing here — the app picks
+from what the sidebar is set to, the CLI takes `AI_ENHANCE_MODE`:
+
+| Mode | For | What it does |
+|---|---|---|
+| `scene` *(default)* | a picture from nothing | adds setting, composition, light, mood |
+| `coloring` | `MFLUX_COLORING=1` renders | adds shape, pose and pattern, and **no** colour or lighting words — those fight the line-art recipe |
+| `instruction` | a reference image in `edit` mode | keeps it an instruction, adds what to preserve, and names nothing it cannot see |
+
+That last restriction is load-bearing. The LLM never sees your reference image,
+so anything it says about the subject is a guess arriving at the edit model as
+fact — an early version turned "give it a hat" into a paragraph about *her*
+hairstyle and a draft named "Fashionista". It is now forbidden to name, describe
+or gender anything the draft does not itself name.
+
+| Var | Default | Notes |
+|---|---|---|
+| `AI_ENHANCE_MODEL` | Ministral-3-14B (env.sh) | any Ollama model — `ollama list` |
+| `AI_ENHANCE_MODE` | `scene` | `scene` \| `coloring` \| `instruction` |
+| `AI_ENHANCE_WORDS` | 60 / 70 / 30 | length cap, per mode |
+| `AI_ENHANCE_HOST` | `http://localhost:11434` | Ollama endpoint |
+| `AI_ENHANCE_KEEP` | `5m` | how long Ollama holds the model after |
+
+**On memory — this one bites.** A 14B at Ollama's default context sits at ~31 GB
+resident, and an mflux render peaks near 28 GB. Both at once on a 64 GB machine
+swap hard: the same 4-step klein render measured **78 s against 9 s**, crawling
+through its last step at 25 s/it. So `generate.sh` unloads the enhance model
+before it renders (`MFLUX_KEEP_LLM=1` opts out), and the app disables Enhance
+while a render runs. The cost is that the first enhance after a render reloads
+the model, about 20 s.
+
+Capping the context does *not* help, counter-intuitively — `num_ctx=4096` drops
+it to 8.8 GB but also to 3.4 tok/s, against ~11 tok/s at the default. A small
+model is the better lever if you want it snappy: `ollama pull qwen3:4b` and set
+`AI_ENHANCE_MODEL=qwen3:4b`.
+
+Needs `jq` and a running Ollama; without either the script says which is missing
+and exits non-zero.
+
 ### Recipes worth remembering
 
 ```bash

@@ -238,6 +238,8 @@ const SC_ACTUAL: egui::KeyboardShortcut = egui::KeyboardShortcut::new(CMD, egui:
 const SC_PROMPT: egui::KeyboardShortcut = egui::KeyboardShortcut::new(CMD, egui::Key::P);
 /// ⌘. — the platform's own "stop what you're doing" key since System 6.
 const SC_ABORT: egui::KeyboardShortcut = egui::KeyboardShortcut::new(CMD, egui::Key::Period);
+/// ⌘E is already "use this image as a reference", so enhance takes ⌘⇧E.
+const SC_ENHANCE: egui::KeyboardShortcut = egui::KeyboardShortcut::new(CMD_SHIFT, egui::Key::E);
 
 /// What the platform calls "show this file in the file manager".
 #[cfg(target_os = "macos")]
@@ -253,6 +255,10 @@ const REVEAL_LABEL: &str = "Show in file manager";
 /// has to mutate the app while the widget that triggered it is still borrowed.
 enum Act {
     Generate,
+    /// Expand the draft in the prompt box via the local LLM.
+    Enhance,
+    /// Put the pre-enhance draft back.
+    RevertEnhance,
     /// Call off the render that is running.
     Abort,
     AddRefs,
@@ -287,6 +293,64 @@ enum GenMsg {
     Failed(String),
     /// The run stopped because the user asked it to — not an error.
     Aborted,
+}
+
+/// What `enhance.sh` sent back: the expanded prompt, or why it couldn't.
+enum EnhanceMsg {
+    Done(String),
+    Failed(String),
+}
+
+/// Which system prompt `enhance.sh` should use, decided by what the sidebar is
+/// set to — the three cases genuinely want different text (see the script).
+fn enhance_mode(refs_empty: bool, mode: RefMode, coloring: bool) -> &'static str {
+    if !refs_empty && mode == RefMode::Edit {
+        "instruction" // the prompt is an edit instruction, not a picture
+    } else if coloring {
+        "coloring" // no colour or lighting words: they fight the line-art recipe
+    } else {
+        "scene"
+    }
+}
+
+/// Run `enhance.sh` and hand back its one line of stdout. Background thread:
+/// a local 14B takes seconds, which is far too long to block a repaint on.
+fn run_enhance(
+    root: PathBuf,
+    draft: String,
+    mode: &'static str,
+    tx: Sender<EnhanceMsg>,
+    ctx: egui::Context,
+) {
+    let out = Command::new("bash")
+        .arg(root.join("enhance.sh"))
+        .arg(&draft)
+        .env("AI_ENHANCE_MODE", mode)
+        .current_dir(&root)
+        .output();
+    let msg = match out {
+        Err(e) => EnhanceMsg::Failed(format!("could not run enhance.sh: {e}")),
+        Ok(o) if o.status.success() => {
+            let text = String::from_utf8_lossy(&o.stdout).trim().to_owned();
+            if text.is_empty() {
+                EnhanceMsg::Failed("the model returned nothing".to_owned())
+            } else {
+                EnhanceMsg::Done(text)
+            }
+        }
+        // enhance.sh puts a human-readable reason on stderr for every exit code
+        // it owns (no jq, no Ollama, model not pulled), so pass that straight on.
+        Ok(o) => EnhanceMsg::Failed(
+            String::from_utf8_lossy(&o.stderr)
+                .trim()
+                .lines()
+                .last()
+                .unwrap_or("enhance.sh failed")
+                .to_owned(),
+        ),
+    };
+    let _ = tx.send(msg);
+    ctx.request_repaint();
 }
 
 /// The handle the UI keeps on a running render so it can be called off.
@@ -328,6 +392,12 @@ struct ImagenApp {
     strength: f32,
     /// Ausmalbild mode: `generate.sh` appends its line-art recipe to the prompt.
     coloring: bool,
+    /// An enhance is in flight; None otherwise.
+    enhance_rx: Option<Receiver<EnhanceMsg>>,
+    /// The draft as it was before the last enhance, so it can be put back.
+    /// Cleared as soon as the box is edited by hand — reverting to something
+    /// the text no longer descends from would be a surprise, not an undo.
+    pre_enhance: Option<String>,
     override_size: bool,
     size: u32,
     shape: Shape,
@@ -391,6 +461,8 @@ impl ImagenApp {
             ref_mode: RefMode::Edit,
             strength: 0.4, // mflux's own --image-strength default
             coloring: false,
+            enhance_rx: None,
+            pre_enhance: None,
             override_size: false,
             size: 1024,
             shape: Shape::Square,
@@ -595,6 +667,13 @@ impl ImagenApp {
     fn act(&mut self, ctx: &egui::Context, act: Act) {
         match act {
             Act::Generate => self.start_generation(ctx),
+            Act::Enhance => self.start_enhance(ctx),
+            Act::RevertEnhance => {
+                if let Some(draft) = self.pre_enhance.take() {
+                    self.prompt = draft;
+                    self.status = "Put the draft back.".to_owned();
+                }
+            }
             Act::Abort => self.abort_generation(),
             Act::AddRefs => {
                 if !self.generating {
@@ -635,6 +714,38 @@ impl ImagenApp {
             Act::ClearLog => self.log.clear(),
             Act::SetFit(fit) => self.fit = fit,
         }
+    }
+
+    /// Expand the draft in the prompt box, in the background.
+    ///
+    /// Blocked while a render runs, and not for tidiness: `generate.sh` unloads
+    /// the LLM precisely so the render can have the memory, and pulling it back
+    /// in mid-render recreates the collision that costs 78 s instead of 9 s.
+    /// The button is disabled then, but ⌘⇧E reaches here without it, so the
+    /// check belongs here too.
+    fn start_enhance(&mut self, ctx: &egui::Context) {
+        if self.enhance_rx.is_some() || self.generating {
+            return;
+        }
+        let draft = self.prompt.trim().to_owned();
+        if draft.is_empty() {
+            self.status = "Type a few words first — enhance fills them out.".to_owned();
+            self.show_sidebar = true;
+            self.focus_prompt = true;
+            return;
+        }
+        let script = self.root.join("enhance.sh");
+        if !script.exists() {
+            self.status = format!("enhance.sh not found at {}", script.display());
+            return;
+        }
+        let mode = enhance_mode(self.refs.is_empty(), self.effective_mode(), self.coloring);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.enhance_rx = Some(rx);
+        self.status = format!("Enhancing the prompt ({mode})…");
+
+        let (root, ctx2) = (self.root.clone(), ctx.clone());
+        thread::spawn(move || run_enhance(root, draft, mode, tx, ctx2));
     }
 
     fn start_generation(&mut self, ctx: &egui::Context) {
@@ -777,6 +888,9 @@ impl ImagenApp {
         if hit(&SC_GENERATE) {
             acts.push(Act::Generate);
         }
+        if hit(&SC_ENHANCE) {
+            acts.push(Act::Enhance);
+        }
         if hit(&SC_ABORT) {
             acts.push(Act::Abort);
         }
@@ -871,6 +985,12 @@ impl ImagenApp {
                     }
                     if menu_item(ui, "Focus prompt", &SC_PROMPT, true) {
                         acts.push(Act::FocusPrompt);
+                    }
+                    let draftable = !self.generating
+                        && self.enhance_rx.is_none()
+                        && !self.prompt.trim().is_empty();
+                    if menu_item(ui, "Enhance prompt", &SC_ENHANCE, draftable) {
+                        acts.push(Act::Enhance);
                     }
                     ui.separator();
                     let many = self.gallery.len() > 1;
@@ -1108,7 +1228,32 @@ impl ImagenApp {
                 "a red fox in a snowy clearing, anime cel illustration…",
             ),
         };
-        ui.strong("Prompt");
+        ui.horizontal(|ui| {
+            ui.strong("Prompt");
+            let busy = self.enhance_rx.is_some();
+            let enhance = egui::Button::new(if busy { "Enhancing…" } else { "Enhance" }).small();
+            if ui
+                .add_enabled(!busy && !self.generating, enhance)
+                .on_hover_text(format!(
+                    "Expand your draft with a local LLM via Ollama — {}.\n\
+                     Sketch the idea, let it write out the setting and detail.",
+                    ui.ctx().format_shortcut(&SC_ENHANCE)
+                ))
+                .clicked()
+            {
+                acts.push(Act::Enhance);
+            }
+            if busy {
+                ui.spinner();
+            } else if self.pre_enhance.is_some()
+                && ui
+                    .small_button("Revert")
+                    .on_hover_text("Put the draft you typed back")
+                    .clicked()
+            {
+                acts.push(Act::RevertEnhance);
+            }
+        });
         ui.small(expects);
         let prompt = ui.add_enabled(
             !self.generating,
@@ -1117,6 +1262,11 @@ impl ImagenApp {
                 .desired_width(f32::INFINITY)
                 .hint_text(hint),
         );
+        // Typing makes the stored draft stale: it is no longer what this text
+        // came from, so Revert would throw away work rather than undo an enhance.
+        if prompt.changed() {
+            self.pre_enhance = None;
+        }
         if self.focus_prompt {
             self.focus_prompt = false;
             prompt.request_focus();
@@ -2042,6 +2192,21 @@ impl eframe::App for ImagenApp {
                 self.cancel = None;
             } else {
                 self.rx = Some(rx); // still running — keep listening
+            }
+        }
+
+        // The enhanced prompt comes back on its own channel.
+        if let Some(rx) = self.enhance_rx.take() {
+            match rx.try_recv() {
+                Ok(EnhanceMsg::Done(text)) => {
+                    self.pre_enhance = Some(std::mem::replace(&mut self.prompt, text));
+                    self.status = "Prompt enhanced — Revert puts your draft back.".to_owned();
+                }
+                Ok(EnhanceMsg::Failed(why)) => self.status = format!("Enhance failed: {why}"),
+                Err(TryRecvError::Empty) => self.enhance_rx = Some(rx), // still thinking
+                Err(TryRecvError::Disconnected) => {
+                    self.status = "Enhance failed: the helper died.".to_owned();
+                }
             }
         }
 
