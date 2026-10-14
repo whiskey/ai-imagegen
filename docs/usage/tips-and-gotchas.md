@@ -42,6 +42,28 @@ The full `Tongyi-MAI/Z-Image-Turbo` repo **renders pure noise** through MFLUX
 
 `MFLUX_MODEL=z-image-turbo ./generate.sh "..."` already does all this.
 
+## FLUX.2 [klein] edits — name everything that must stay
+
+Edit mode (`./generate.sh "add …" image.png`) adds things in the picture's own
+hand-drawn style — a blank scroll to typeset a title into, a horseshoe magnet —
+but it redraws the whole frame, and "keep everything else exactly as it is" does
+not protect much:
+
+- **Name each element to keep.** Adding a banner dropped the faint background
+  doodles on two of three seeds until the instruction said "keep the pale golden
+  outline doodles". Removing a third eye from a dog also lost its smile and red
+  cheeks; describing the current state ("three big round white eyes in a row,
+  erase only the rightmost") and listing what stays (eyes, smile, cheek circle,
+  nose) fixed it.
+- **A second edit pass can undo the first.** Removing a prop from one character
+  also removed the magnet an earlier edit had added. Instead of accepting the
+  whole pass, paste only the changed region into the earlier version through a
+  feathered mask (a `GaussianBlur`-ed rectangle in Pillow) — the seam is invisible
+  because both share style and framing.
+- **Count eyes, legs and tails.** klein drew a dachshund with three eyes and two
+  tails that read as fine at thumbnail size; check animals at full size before
+  accepting a render.
+
 ## HuggingFace downloads — reliability
 
 - **Xet backend is disabled** (`HF_HUB_DISABLE_XET=1` in `env.sh`). The Xet chunk
