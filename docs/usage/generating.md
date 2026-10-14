@@ -98,6 +98,22 @@ exists because it bites hard: a 2880×1800 wallpaper as reference renders at
 The same edit at the capped 1440×896 stays near 30 GB and runs ~4 s per step. Raise
 the cap if you have headroom (`MFLUX_MAX_MP=3`), or set an explicit size to bypass it.
 
+### Upscaling for print (SeedVR2)
+
+`generate.sh` does not wrap MFLUX's SeedVR2 upscaler, but it runs as-is from the
+venv (weights: `numz/SeedVR2_comfyUI` in the shared HF cache):
+
+```bash
+source env.sh && source .venv/bin/activate
+mflux-upscale-seedvr2 --image-path in.png --resolution 2480 --seed 1 --output out.png
+```
+
+`--resolution` is the target for the shortest edge (or a factor such as `2x`).
+Measured on the M5 Max: a 1024×1280 klein render → 2480×3100 in 1:49 at 14 GB
+peak; 1024² → 2048² in about a minute. Ink line art comes out sharp with no
+invented detail. This is how a 1024 px render becomes an A4 print master at
+300 dpi (2480×3508) — a Lanczos resize only stretches its ~90 dpi of detail.
+
 ### Coloring pages (Ausmalbilder)
 
 `MFLUX_COLORING=1` leaves the prompt as written and appends a line-art recipe to

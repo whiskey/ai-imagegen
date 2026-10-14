@@ -43,7 +43,8 @@ downloads Qwen-Image-Edit-2509, ~58 GB).
 
 MFLUX also does ControlNet / inpainting / upscaling, not wired up here — see the
 remaining `mflux-generate-*` commands in `.venv/bin` (`mflux-generate-kontext`,
-`mflux-generate-fill`, `mflux-upscale-seedvr2`, …).
+`mflux-generate-fill`, `mflux-upscale-seedvr2`, …). The upscaler works directly
+from the venv: [upscaling for print](generating.md#upscaling-for-print-seedvr2).
 
 ### Quick picks
 - **Everyday:** `flux2` (default) — or `z-image-turbo` when you want the fastest
