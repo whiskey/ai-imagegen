@@ -45,12 +45,22 @@ sudo sshd -t
 sudo sshd -T | grep -Ei '^(passwordauthentication|kbdinteractiveauthentication|allowtcpforwarding) '
 ```
 
-The last line must print `no`, `no` and `local`. sshd keeps the **first** value
-it reads, and `/etc/ssh/sshd_config` includes `sshd_config.d/*` in name order at
-its very top — hence `050-`, ahead of Apple's own `100-macos.conf`. macOS starts
-sshd per connection, so there is nothing to restart: the next login uses the new
-file. From a client, the refusal now names `publickey` alone —
-[Check it](#check-it), first test.
+`sshd -t` prints nothing when the file is valid. The last line must print:
+
+```
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AllowTcpForwarding local
+```
+
+That is OpenSSH 10.6 on macOS 26.7; older releases print the names in lowercase
+(`passwordauthentication no`), which the `grep -i` matches as well.
+
+sshd keeps the **first** value it reads, and `/etc/ssh/sshd_config` includes
+`sshd_config.d/*` in name order at its very top — hence `050-`, ahead of
+Apple's own `100-macos.conf`. macOS starts sshd per connection, so there is
+nothing to restart: the next login uses the new file. From a client, the
+refusal now names `publickey` alone — [Check it](#check-it), first test.
 
 `AllowTcpForwarding local` applies to every key on the server, yours included:
 nobody can `ssh -R` onto this Mac any more. `-L` tunnels are unaffected.
