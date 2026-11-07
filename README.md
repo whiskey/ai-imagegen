@@ -133,6 +133,7 @@ Sorted into **setup** (provision once) and **usage & tips** (day-to-day):
 - [installation.md](docs/setup/installation.md) — isolated toolchain (uv, Python 3.12, venvs, ComfyUI, HF login)
 - [models.md](docs/setup/models.md) — downloading models + the shared store (opencode reuse, FLUX.2 dev)
 - [models-inventory.md](docs/setup/models-inventory.md) — archived pre-clear snapshot
+- [remote-access.md](docs/setup/remote-access.md) — use the big Mac's ComfyUI and Ollama from another Mac, over a key-only SSH tunnel
 
 **docs/usage/**
 - [generating.md](docs/usage/generating.md) — `generate.sh`, tunables, recipes, ComfyUI launch
